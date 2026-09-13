@@ -87,9 +87,9 @@
 {% set path = request.url.path %}
 <nav>
   <a href="/"{% if path == '/' and not q %} class="current"{% endif %}>Задачі</a>
+  <a href="/notes"{% if path.startswith('/notes') %} class="current"{% endif %}>Нотатки</a>
   <a href="/items"{% if path.startswith('/items') %} class="current"{% endif %}>Речі</a>
   <a href="/dreams"{% if path.startswith('/dreams') %} class="current"{% endif %}>Мрії</a>
-  <a href="/notes"{% if path.startswith('/notes') %} class="current"{% endif %}>Нотатки</a>
   <details class="admin">
     <summary>Адмін</summary>
     <div>

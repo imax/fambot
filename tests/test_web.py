@@ -108,6 +108,8 @@ def test_web_pages(db: Database, family: Family) -> None:
     assert ">Речі</a>" in home.text and ">Користувачі</a>" in home.text
     assert ">Мрії</a>" in home.text
     assert ">Нотатки</a>" in home.text  # the one page since 2026-09-13; /journal was the log
+    tabs = [home.text.index(f">{t}</a>") for t in ("Задачі", "Нотатки", "Речі", "Мрії")]
+    assert tabs == sorted(tabs)  # the notes right after the tasks
     dreams = client.get("/dreams", headers=_auth())
     assert dreams.status_code == 200 and 'class="current">Мрії' in dreams.text
     assert "Поїхати в Японію з Олею" in dreams.text and "Анна" in dreams.text
