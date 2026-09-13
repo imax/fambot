@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Мрії{% endblock %}
+{% block body %}
+<h2>Мрії</h2>
+{# the family's list, oldest first; a dream is added and closed in the chat, nothing here writes #}
+<ul class="rows">
+  {% for d in dreams %}
+  <li>{{ d.text }} <span class="meta">· {{ d.created_by | person }}, {{ d.created_at | dmy }}</span></li>
+  {% else %}<li class="empty">поки порожньо: напиши боту «мрію …»</li>{% endfor %}
+</ul>
+{% if fulfilled %}
+<h2>Здійснилось</h2>
+<ul class="rows done">
+  {% for d in fulfilled %}
+  <li><span class="mark">✓</span>{{ d.text }} <span class="meta">· {{ d.created_by | person }} · {{ d.closed_at | dmy }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

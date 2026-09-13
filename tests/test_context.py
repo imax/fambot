@@ -178,6 +178,9 @@ def test_build_context_sections(
         due="2026-09-10",
     )
     db.insert_message("bot", "oleh", "Записав.")
+    db.create_dream("Поїхати в Японію з Олею", created_by="anna", source_message_id=mid)
+    done = db.create_dream("Пройти Camino de Santiago", created_by="oleh", source_message_id=mid)
+    db.close_dream(done, "fulfilled")
     now = datetime(2026, 9, 10, 8, 0, tzinfo=KYIV)
     ctx = build_context(db, family, now, oleh, "Хто ремонтував котел?")
     assert "2026-09-10 08:00 (Europe/Kyiv), четвер" in ctx
@@ -186,6 +189,11 @@ def test_build_context_sections(
     assert "Задачі на сьогодні:\n- [#1]" in ctx
     assert "## Події (минулі за 7 днів і всі майбутні)\nнемає" in ctx
     assert "Нотатки" not in ctx and "journal" not in ctx
+    assert (
+        "## Мрії (dreams: спільний список, хто додав; здійснені лише на вебі)\n"
+        "- [мрія #1] Поїхати в Японію з Олею (Анна)\n" in ctx
+    )
+    assert "Camino" not in ctx  # fulfilled: on the web only
     assert "## Речі (items), змінені за останні 2 дні\n- [#1] Паспорт Олі (Оля) → квартира" in ctx
     assert "## Речі, схожі на повідомлення\nнемає" in ctx
     assert "## Відомі місця (place), де лежать речі\nквартира (1), офіс (1)" in ctx

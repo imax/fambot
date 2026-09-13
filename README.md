@@ -21,6 +21,9 @@ calls: all it knows is in the context the code builds for it.
 - **Events**: something happens at a time or on a day and then passes.
 - **Todos** (Задачі): something to do, with an owner and at most a deadline day. Closed
   by saying so in the chat or with a tap on the web.
+- **Dreams** (Мрії): what the family wants some day, one shared list, each with the
+  person who dreamt it up. No date, never overdue; fulfilled or let go. «Мрію пройти
+  Camino de Santiago».
 - **Reminders**: a message to one person or everyone at a given moment.
 - **Today boards** («на сьогодні»): each person's free-text list for the day, kept as one
   sentence and rewritten on request.

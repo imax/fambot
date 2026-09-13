@@ -78,6 +78,7 @@
 <nav>
   <a href="/"{% if path == '/' and not q %} class="current"{% endif %}>Задачі</a>
   <a href="/items"{% if path.startswith('/items') %} class="current"{% endif %}>Речі</a>
+  <a href="/dreams"{% if path.startswith('/dreams') %} class="current"{% endif %}>Мрії</a>
   <details class="admin">
     <summary>Адмін</summary>
     <div>

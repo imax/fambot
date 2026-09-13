@@ -1,7 +1,8 @@
 # Family EA
 
 Private family assistant in Telegram: two adults throw text and voice at the bot, it keeps
-one shared state (items, events, todos, reminders, today boards), answers questions from it,
+one shared state (items, events, todos, dreams, reminders, today boards), answers questions
+from it,
 pushes a morning digest and sends reminders at the asked time. Deployed to Fly.io, SQLite on a volume, in real use since 2026-09-10.
 
 `docs/spec-v3.md` is the original spec (Ukrainian). It was retired on 2026-09-10: read it
@@ -45,13 +46,13 @@ family_ea/
                 `session` cookie; `pull` signs a `backup` bearer. Nothing is stored.
   family.py     Family over the members table (+ ADMIN_USER_ID); slugify() makes ids from names
   db.py         SQLite schema + all queries; dataclasses Message/Attachment/Item/Event/
-                Todo/Reminder/TodayList; item_history is written by the item methods only;
+                Todo/Dream/Reminder/TodayList; item_history is written by the item methods only;
                 _migrate() for what CREATE IF NOT EXISTS cannot express;
                 backup_to() is the online backup behind GET /backup.db
   context.py    deterministic LLM context, event agenda (today/tomorrow/later/recent),
                 todo buckets (today/overdue/open/later), today boards (blocks for the
-                web and the digest head), the digest text, the web home (calendar days;
-                overdue / dated / undated todos), the search stems
+                web and the digest head), the dream lines, the digest text, the web home
+                (calendar days; overdue / dated / undated todos), the search stems
   llm.py        pydantic output schema, system prompt, the one messages.parse() call
   ops.py        apply LLM ops to db, with validation and an `applied` log
   pipeline.py   store (message, then its photo as an attachment) -> context -> LLM -> ops -> reply
@@ -68,6 +69,7 @@ family_ea/
   web.py        FastAPI + Jinja: GET /login?t= (the bot's link; sets the cookie), GET / (the
                 boards, the timeline, the last done ones; ?q= searches), GET /items (Речі:
                 places, recent; ?place= ?owner= list), GET /items/:id (photos, history),
+                GET /dreams (Мрії: open ones, then fulfilled; read-only),
                 GET /files/:sha256 (cookie or bearer),
                 GET /files.json (bearer; what `pull` mirrors), GET/POST /facts, GET/POST
                 /family, GET /messages, GET /events/:id.ics, GET /todos/:id.ics,
@@ -98,6 +100,12 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   «commitment» with `due_at` or a date window, and the LLM filed appointments there; the
   single day field is what keeps the two apart.) Different lifecycles, different data. The
   same goes for any new kind of thing (reminders): its own table, its own ops.
+- **A dream is a shared list entry with an author, not a todo without a date.** `dreams`
+  (2026-09-13): text, who dreamt it up (`created_by`, shown to both), open / fulfilled /
+  dropped; no owner, no date, never overdue, no photos. The LLM files one only on an
+  explicit «мрію…» / «в мрії: …»; «хочу купити диван» stays a todo or nothing. Every open
+  dream is in the LLM context (they are few); the web tab is read-only, changes go
+  through the chat.
 - **Items stay out of the default context.** They can be many; the LLM sees only what
   changed in the last two days plus the search hits for the incoming message, the rest is
   on the web. Which item a message is about, the LLM decides from
@@ -203,7 +211,7 @@ The backlog may name code.
 - Three kinds of knowledge, three owners: `members` table (who talks to the bot, the
   Telegram allowlist; only `ADMIN_USER_ID` is env, the admin edits the rest on the web),
   `facts` (stable background about the family; the human edits it on the web, the LLM only
-  reads it), items/events/todos/reminders/today boards (everything people tell the bot; the
+  reads it), items/events/todos/dreams/reminders/today boards (everything people tell the bot; the
   LLM writes them).
 - Python 3.12, `uv` for deps, `ruff` for lint/format, `pytest` with `asyncio_mode=auto`.
 - FastAPI modules must not use `from __future__ import annotations`: postponed `Annotated`

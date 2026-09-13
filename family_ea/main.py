@@ -233,6 +233,7 @@ _OP_KIND = {
     "events": "event",
     "todos": "todo",
     "commitments": "commitment",  # rows from before 2026-09-12
+    "dreams": "dream",
     "reminders": "reminder",
 }
 

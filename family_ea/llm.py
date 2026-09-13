@@ -1,9 +1,10 @@
 """The single structured-output call per message. The LLM understands; code executes.
 
-Four kinds of output besides the reply: items (things and where they are), events
+Five kinds of output besides the reply: items (things and where they are), events
 (things that happen at a time or on a day and then pass), todos (things to do, with a
-deadline day or none) and reminders (a message to send someone at a given moment); plus
-`today`, a member's «на сьогодні» board: free text, replaced whole, only when asked.
+deadline day or none), dreams (what the family wants some day: no date, one shared list)
+and reminders (a message to send someone at a given moment); plus `today`, a member's «на
+сьогодні» board: free text, replaced whole, only when asked.
 What happened, stories, contacts are not kept (the notes went on 2026-09-12): the bot
 answers and does not promise to write them down.
 """
@@ -81,6 +82,15 @@ class TodoOp(BaseModel):
     )
 
 
+class DreamOp(BaseModel):
+    op: Literal["create", "update", "close"]
+    id: int = Field(default=0, description="update/close: id існуючої мрії")
+    text: str = Field(default="", description="create/update: сама мрія, коротко")
+    status: Literal["fulfilled", "dropped", ""] = Field(
+        default="", description="close: fulfilled — здійснилась, dropped — відпустили"
+    )
+
+
 class ReminderOp(BaseModel):
     op: Literal["create", "update", "cancel"]
     id: int = Field(default=0, description="update/cancel: id існуючого нагадування")
@@ -110,6 +120,7 @@ class LlmResult(BaseModel):
     items: list[ItemOp] = Field(default_factory=list)
     events: list[EventOp] = Field(default_factory=list)
     todos: list[TodoOp] = Field(default_factory=list)
+    dreams: list[DreamOp] = Field(default_factory=list)
     reminders: list[ReminderOp] = Field(default_factory=list)
     today: list[TodayOp] = Field(default_factory=list)
 
@@ -123,20 +134,19 @@ SYSTEM_PROMPT = """\
 
 У контексті є «Факти про сім'ю» — стабільний фон, який веде людина сама: хто є хто, адреси, \
 звички, як до кого звертатись. Спирайся на них, але не редагуй: ти їх не повертаєш. Те, що \
-людина просить вести, — це items, events, todos і reminders; а «Списки на \
+людина просить вести, — це items, events, todos, dreams і reminders; а «Списки на \
 сьогодні» — дошка кожного, яку ти переписуєш лише на явне прохання (today). Нотаток нема: \
 що сталося, як пройшло, хто що розповів, контакти і ціни ти не зберігаєш. На таке коротко \
 відреагуй без операцій і не обіцяй записати; якщо людина явно просить це запам'ятати, скажи \
-одним реченням, що ведеш лише речі, події, задачі, нагадування і список на сьогодні, а \
-стабільне (контакт, адресу) можна дописати у факти на вебі.
+одним реченням, що ведеш лише речі, події, задачі, мрії, нагадування і список на сьогодні, \
+а стабільне (контакт, адресу) можна дописати у факти на вебі.
 
 Що ти вмієш, і більше нічого: відповідати в цьому чаті; читати фото, яке прислали з \
-повідомленням; вести речі (items: що у нас є і де лежить), events, todos, reminders і \
-список на сьогодні (today) кожного; щоранку о 08:30 писати кожному дайджест (списки на \
-сьогодні, події на сьогодні й завтра, задачі на сьогодні, прострочені; задачі без дати лише \
-на вебі); \
-надсилати нагадування в заданий момент; давати кнопку «Відкрити» (веб) під дайджестом, \
-/today і /web. \
+повідомленням; вести речі (items: що у нас є і де лежить), events, todos, мрії (dreams: \
+спільний список на вебі), reminders і список на сьогодні (today) кожного; щоранку о 08:30 \
+писати кожному дайджест (списки на сьогодні, події на сьогодні й завтра, задачі на \
+сьогодні, прострочені; задачі без дати лише на вебі); надсилати нагадування в заданий \
+момент; давати кнопку «Відкрити» (веб) під дайджестом, /today і /web. \
 Ти не бачиш, що відбувається (де хто є, кого зустрів), не дзвониш, не пишеш стороннім, не \
 шукаєш в інтернеті. Не обіцяй у reply нічого поза цим списком; якщо просять те, чого не \
 вмієш, скажи, що зробиш натомість.
@@ -215,6 +225,14 @@ todo, і в reply чесно скажи, що записав як задачу �
 змінити список партнера. Усе інше («сьогодні треба подзвонити газовику», «завтра помити \
 авто») — як і раніше todo чи подія, не цей список. «Що в мене на сьогодні?» — \
 відповідай з дошки в reply, без операцій.
+- dreams — мрії: чого сім'ї хочеться колись, без дати й дедлайну; один спільний список, \
+видно обом, у кожної мрії видно, хто її додав: «Поїхати в Японію з Олею», «Пройти Camino \
+de Santiago». Записуй лише коли людина явно каже, що це мрія: «мрію…», «моя мрія — …», \
+«в мрії: …», «додай у мрії …». «Хочу купити диван», «треба б колись…» — не мрія: задача \
+чи нічого, як і раніше. text — сама мрія коротко, з великої літери, словами людини. \
+Здійснилось («ми таки пройшли Каміно», «Японія була!») → close зі status fulfilled; «вже \
+не хочемо», «прибери з мрій» → close зі status dropped; переформулювати → update з id. \
+«Що ми мріємо?» — відповідай зі списку в reply, без операцій.
 
 Правила:
 - Одне повідомлення може дати багато операцій (список із 15 пунктів → 15 операцій) або \
@@ -223,7 +241,7 @@ todo, і в reply чесно скажи, що записав як задачу �
 відповідай з контексту в reply, без операцій. Якщо в контексті цього нема — так і скажи.
 - Виправлення («ні, не до п'ятниці, а протягом двох тижнів», «Марію закрий», «забудь про \
 газовика») стосуються існуючих записів: знайди їх за id серед подій, нагадувань, \
-відкритих todos чи речей і поверни update / cancel / close / remove. Не створюй дублікат.
+відкритих todos, мрій чи речей і поверни update / cancel / close / remove. Не створюй дублікат.
 - Одна подія — один запис. Якщо схожий запис уже є, не дублюй; за потреби update.
 - «Зробила», «попрала», «домовились» про відкритий todo — це close зі status done; \
 подробиці (як пройшло, що коштувало) нікуди не пишуться.

@@ -90,6 +90,11 @@ def test_web_pages(db: Database, family: Family) -> None:
         created_by="anna",
         source_message_id=mid,
     )
+    db.create_dream("Поїхати в Японію з Олею", created_by="anna", source_message_id=mid)
+    done = db.create_dream("Пройти Camino de Santiago", created_by="oleh", source_message_id=mid)
+    db.close_dream(done, "fulfilled")
+    gone = db.create_dream("Купити яхту", created_by="oleh", source_message_id=mid)
+    db.close_dream(gone, "dropped")
     client = TestClient(build_web(_settings(), family, db))
 
     assert client.get("/healthz").json() == {"ok": True}
@@ -101,7 +106,14 @@ def test_web_pages(db: Database, family: Family) -> None:
     assert "Стоматолог" in home.text and "Анна" in home.text
     assert ">Задачі</a>" in home.text and 'class="current">Задачі' in home.text
     assert ">Речі</a>" in home.text and ">Користувачі</a>" in home.text
-    assert ">Нотатки</a>" not in home.text  # two tabs: the notes went on 2026-09-12
+    assert ">Мрії</a>" in home.text
+    assert ">Нотатки</a>" not in home.text  # the notes went on 2026-09-12
+    dreams = client.get("/dreams", headers=_auth())
+    assert dreams.status_code == 200 and 'class="current">Мрії' in dreams.text
+    assert "Поїхати в Японію з Олею" in dreams.text and "Анна" in dreams.text
+    assert "<h2>Здійснилось</h2>" in dreams.text and "Camino" in dreams.text
+    assert "яхту" not in dreams.text  # let go: shown nowhere
+    assert client.get("/dreams").status_code == 401
     assert client.get("/journal", headers=_auth()).status_code == 404
     items = client.get("/items", headers=_auth())
     assert items.status_code == 200 and 'class="current">Речі' in items.text

@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from family_ea.db import Database
 
 
@@ -126,6 +128,32 @@ def test_todo_lifecycle(db: Database) -> None:
 
     assert [x.id for x in db.search_todos(r"\bстомат")] == [cid]
     assert db.search_todos(r"\bтомат") == []  # a word start, not a substring
+
+
+def test_dream_lifecycle(db: Database) -> None:
+    mid = db.insert_message("oleh", "oleh", "мрію пройти Camino de Santiago")
+    first = db.create_dream("Пройти Camino de Santiago", created_by="oleh", source_message_id=mid)
+    second = db.create_dream("Поїхати в Японію з Олею", created_by="anna", source_message_id=mid)
+    assert [d.id for d in db.open_dreams()] == [first, second]  # oldest first
+    assert db.fulfilled_dreams() == []
+
+    assert db.update_dream(first, "Пройти Camino de Santiago пішки") is True
+    d = db.get_dream(first)
+    assert d and d.text == "Пройти Camino de Santiago пішки" and d.created_by == "oleh"
+
+    assert db.close_dream(first, "fulfilled") is True
+    assert db.close_dream(first, "fulfilled") is False  # not open any more
+    assert db.close_dream(999, "dropped") is False
+    with pytest.raises(ValueError):
+        db.close_dream(second, "done")
+    assert db.update_dream(first, "x") is False
+    assert [d.id for d in db.open_dreams()] == [second]
+    assert [d.id for d in db.fulfilled_dreams()] == [first]
+    d = db.get_dream(first)
+    assert d and d.status == "fulfilled" and d.closed_at and not d.is_open
+
+    assert db.close_dream(second, "dropped") is True  # let go: on neither list
+    assert db.open_dreams() == [] and [d.id for d in db.fulfilled_dreams()] == [first]
 
 
 def test_messages_order_and_last_user_message(db: Database) -> None:

@@ -4,7 +4,7 @@ There is no password. `/web` in Telegram (and «Відкрити» under the dig
 a member a link to `/login?t=…`; opening it sets a long-lived signed cookie. Read-only except
 `/facts` and `/family`, the two things a human edits by hand, and three things about a
 todo, all through the db methods the LLM ops use: done («☐»), the text («✎») and the
-order of the undated ones (dragged), on the home page.
+order of the undated ones (dragged), on the home page. Dreams (`/dreams`) are only read.
 """
 
 import json
@@ -29,6 +29,7 @@ from .context import (
     fmt_dt,
     fmt_due,
     fmt_event_when,
+    parse_iso,
     today_blocks,
     word_pattern,
 )
@@ -61,6 +62,9 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
     templates.env.filters["dt"] = lambda iso: fmt_dt(iso, settings.tz)
     templates.env.filters["date"] = fmt_date
     templates.env.filters["day"] = lambda iso: fmt_dt(iso, settings.tz)[:5]
+    templates.env.filters["dmy"] = lambda iso: (
+        parse_iso(iso).astimezone(settings.tz).strftime("%d.%m.%Y")
+    )
     templates.env.filters["due"] = fmt_due
     templates.env.filters["when"] = lambda e: fmt_event_when(e, settings.tz)
     templates.env.filters["person"] = family.display_name
@@ -225,6 +229,16 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
                 "history": db.item_history(iid),
                 "files": files_for(db, "item", [item]).get(iid, []),
             },
+        )
+
+    @app.get("/dreams", response_class=HTMLResponse, dependencies=[Depends(authed)])
+    async def dreams_page(request: Request) -> HTMLResponse:
+        """The family's dreams, oldest first, then the ones that came true. Read-only: a
+        dream is added, reworded, fulfilled or let go in the chat («мрію …»)."""
+        return templates.TemplateResponse(
+            request,
+            "dreams.html",
+            {"dreams": db.open_dreams(), "fulfilled": db.fulfilled_dreams()},
         )
 
     @app.get("/files/{sha256}")

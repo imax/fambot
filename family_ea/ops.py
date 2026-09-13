@@ -1,9 +1,10 @@
-"""Apply LLM operations to the database: items, events, todos, reminders, today boards.
+"""Apply LLM operations to the database: items, events, todos, dreams, reminders, today
+boards.
 
 Invalid ops (unknown ids, closed items, bad dates, an event without a date, a reminder
 without a time) are ignored and logged, never fatal. Closing a todo goes through
-`close_todo`, cancelling an event through `cancel_event`, a reminder through
-`cancel_reminder`; nothing else closes or cancels.
+`close_todo`, a dream through `close_dream`, cancelling an event through `cancel_event`, a
+reminder through `cancel_reminder`; nothing else closes or cancels.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Applied:
-    kind: str  # 'item' | 'event' | 'todo' | 'reminder' | 'today'
+    kind: str  # 'item' | 'event' | 'todo' | 'dream' | 'reminder' | 'today'
     op: str
     id: int | None
     ok: bool
@@ -290,6 +291,27 @@ def apply_ops(
             ok = bool(t.id) and db.close_todo(t.id, status)
             note = "" if ok else "not found or not open"
             applied.append(Applied("todo", f"close:{status}", t.id or None, ok, note))
+
+    for d in result.dreams:
+        text = _text(d.text)
+        if d.op == "create":
+            if text is None:
+                applied.append(Applied("dream", "create", None, False, "empty text"))
+                continue
+            did = db.create_dream(text, created_by=author_id, source_message_id=message_id)
+            applied.append(Applied("dream", "create", did, True))
+        elif d.op == "update":
+            if not d.id or text is None:
+                applied.append(Applied("dream", "update", d.id or None, False, "nothing to update"))
+                continue
+            ok = db.update_dream(d.id, text)
+            note = "" if ok else "not found or not open"
+            applied.append(Applied("dream", "update", d.id, ok, note))
+        elif d.op == "close":
+            status = d.status or "fulfilled"
+            ok = bool(d.id) and db.close_dream(d.id, status)
+            note = "" if ok else "not found or not open"
+            applied.append(Applied("dream", f"close:{status}", d.id or None, ok, note))
 
     for r in result.reminders:
         fields, notes = _reminder_fields(r, family, tz)

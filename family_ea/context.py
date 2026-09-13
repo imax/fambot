@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from .db import Database, Event, Item, Member, Message, Reminder, TodayList, Todo
+from .db import Database, Dream, Event, Item, Member, Message, Reminder, TodayList, Todo
 from .family import Family
 
 RECENT_WINDOW_DAYS = 2  # items changed this recently are in every LLM context; older: search
@@ -185,6 +185,14 @@ def todo_line(t: Todo, family: Family, with_id: bool = True) -> str:
     if meta:
         parts.append(f" ({', '.join(meta)})")
     return "".join(parts)
+
+
+# --- dreams ---------------------------------------------------------------------
+
+
+def dream_line(d: Dream, family: Family) -> str:
+    """'[мрія #1] Поїхати в Японію з Олею (Олег)'."""
+    return f"[мрія #{d.id}] {d.text} ({family.display_name(d.created_by)})"
 
 
 # --- reminders ----------------------------------------------------------------
@@ -628,6 +636,10 @@ def build_context(
             [f"- {todo_line(t, family)}" for t in open_todos],
         ),
         section("Сьогодні / прострочено", [render_digest(agenda, buckets, family, tz)]),
+        section(
+            "Мрії (dreams: спільний список, хто додав; здійснені лише на вебі)",
+            [f"- {dream_line(d, family)}" for d in db.open_dreams()],
+        ),
         section(
             f"Речі (items), змінені за останні {RECENT_WINDOW_DAYS} дні",
             [f"- {item_line(i)}" for i in recent_items],

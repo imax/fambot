@@ -1,9 +1,10 @@
-"""SQLite storage: members, messages, items, events, todos, reminders, facts, today lists.
+"""SQLite storage: members, messages, items, events, todos, dreams, reminders, facts,
+today lists.
 
 One connection, one process, one writer. Original messages are never mutated; items are
-removed (gone) and every change to one writes an item_history row; todos are closed,
-events are cancelled and reminders are sent, missed or cancelled, never removed (a past
-event simply passes); facts (the human-maintained standing context) keep every version;
+removed (gone) and every change to one writes an item_history row; todos and dreams are
+closed, events are cancelled and reminders are sent, missed or cancelled, never removed (a
+past event simply passes); facts (the human-maintained standing context) keep every version;
 members (who talks to the bot) are edited by the admin on the web.
 """
 
@@ -39,6 +40,16 @@ CREATE TABLE IF NOT EXISTS todos (
                                     --   makes it an event, not a todo)
   position INTEGER,                 -- hand-set order of the undated ones (web); NULL = after them
   created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  source_message_id INTEGER NOT NULL,
+  closed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS dreams (
+  id INTEGER PRIMARY KEY,
+  text TEXT NOT NULL,               -- the dream as the person put it: «Поїхати в Японію з Олею»
+  status TEXT NOT NULL,             -- 'open' | 'fulfilled' | 'dropped'
+  created_by TEXT NOT NULL,         -- who dreamt it up; the list itself is the family's
   created_at TEXT NOT NULL,
   source_message_id INTEGER NOT NULL,
   closed_at TEXT
@@ -206,6 +217,23 @@ class Todo:
 
 
 @dataclass(frozen=True)
+class Dream:
+    """Something the family wants some day: no date, never overdue; fulfilled or let go."""
+
+    id: int
+    text: str
+    status: str
+    created_by: str
+    created_at: str
+    source_message_id: int
+    closed_at: str | None
+
+    @property
+    def is_open(self) -> bool:
+        return self.status == "open"
+
+
+@dataclass(frozen=True)
 class Event:
     id: int
     text: str
@@ -329,6 +357,10 @@ def _item_change(row: sqlite3.Row) -> ItemChange:
 
 def _todo(row: sqlite3.Row) -> Todo:
     return Todo(**dict(row))
+
+
+def _dream(row: sqlite3.Row) -> Dream:
+    return Dream(**dict(row))
 
 
 def _event(row: sqlite3.Row) -> Event:
@@ -936,6 +968,54 @@ class Database:
             (pattern, limit),
         ).fetchall()
         return [_todo(r) for r in rows]
+
+    # --- dreams ---------------------------------------------------------------
+
+    def create_dream(self, text: str, *, created_by: str, source_message_id: int) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO dreams (text, status, created_by, created_at, source_message_id)"
+            " VALUES (?, 'open', ?, ?, ?)",
+            (text, created_by, utc_now_iso(), source_message_id),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid or 0)
+
+    def update_dream(self, dream_id: int, text: str) -> bool:
+        """Reword an open dream. Returns False if not open."""
+        cur = self.conn.execute(
+            "UPDATE dreams SET text = ? WHERE id = ? AND status = 'open'", (text, dream_id)
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def close_dream(self, dream_id: int, status: str) -> bool:
+        """Close an open dream as 'fulfilled' or 'dropped'. Returns False if not open."""
+        if status not in ("fulfilled", "dropped"):
+            raise ValueError(f"bad status: {status}")
+        cur = self.conn.execute(
+            "UPDATE dreams SET status = ?, closed_at = ? WHERE id = ? AND status = 'open'",
+            (status, utc_now_iso(), dream_id),
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def get_dream(self, dream_id: int) -> Dream | None:
+        row = self.conn.execute("SELECT * FROM dreams WHERE id = ?", (dream_id,)).fetchone()
+        return _dream(row) if row else None
+
+    def open_dreams(self) -> list[Dream]:
+        """The family's dreams, oldest first: the list grows at the bottom."""
+        rows = self.conn.execute(
+            "SELECT * FROM dreams WHERE status = 'open' ORDER BY id"
+        ).fetchall()
+        return [_dream(r) for r in rows]
+
+    def fulfilled_dreams(self) -> list[Dream]:
+        """The ones that came true, the latest first."""
+        rows = self.conn.execute(
+            "SELECT * FROM dreams WHERE status = 'fulfilled' ORDER BY closed_at DESC, id DESC"
+        ).fetchall()
+        return [_dream(r) for r in rows]
 
     # --- reminders ------------------------------------------------------------
 

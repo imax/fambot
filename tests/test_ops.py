@@ -32,6 +32,7 @@ def test_schema_accepts_spec_example() -> None:
     assert LlmResult.model_validate({"reply": "Ок."}).events == []
     assert r.todos[0].due == "2026-09-10" and r.todos[1].due == ""
     assert LlmResult.model_validate({"reply": "Ок."}).todos == []
+    assert LlmResult.model_validate({"reply": "Ок."}).dreams == []
 
 
 def test_today_op_replaces_a_board(db: Database, family: Family) -> None:
@@ -213,3 +214,49 @@ def test_apply_item_ops(db: Database, family: Family) -> None:
     item = db.get_item(iid)
     assert item and item.place == "квартира" and item.spot is None and item.owner == "Оля"
     assert item.name == "Паспорт Олі" and item.removed_at
+
+
+def test_apply_dream_ops(db: Database, family: Family) -> None:
+    """«Мрію пройти Каміно»: a dream with its author; reworded, fulfilled, let go."""
+    mid = db.insert_message("oleh", "oleh", "...")
+
+    def apply(ops: list[dict], author: str = "oleh") -> list:
+        r = LlmResult.model_validate({"reply": "", "dreams": ops})
+        return apply_ops(db, r, author_id=author, message_id=mid, family=family, tz=KYIV)
+
+    applied = apply(
+        [
+            {"op": "create", "text": " Пройти Camino de Santiago "},
+            {"op": "create", "text": "  "},
+            {"op": "update", "id": 99, "text": "x"},
+            {"op": "update", "text": "no id"},
+        ]
+    )
+    assert [(a.kind, a.op, a.ok, a.note) for a in applied] == [
+        ("dream", "create", True, ""),
+        ("dream", "create", False, "empty text"),
+        ("dream", "update", False, "not found or not open"),
+        ("dream", "update", False, "nothing to update"),
+    ]
+    did = applied[0].id or 0
+    d = db.get_dream(did)
+    assert d and d.text == "Пройти Camino de Santiago" and d.created_by == "oleh"
+
+    applied = apply(
+        [
+            {"op": "update", "id": did, "text": "Пройти Camino de Santiago разом"},
+            {"op": "update", "id": did},  # nothing given
+            {"op": "close", "id": did},  # fulfilled by default
+            {"op": "close", "id": did, "status": "dropped"},
+        ],
+        author="anna",
+    )
+    assert [(a.op, a.ok, a.note) for a in applied] == [
+        ("update", True, ""),
+        ("update", False, "nothing to update"),
+        ("close:fulfilled", True, ""),
+        ("close:dropped", False, "not found or not open"),
+    ]
+    d = db.get_dream(did)
+    assert d and d.status == "fulfilled" and d.text == "Пройти Camino de Santiago разом"
+    assert d.created_by == "oleh"  # the author stays whoever dreamt it up
