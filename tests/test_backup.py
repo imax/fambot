@@ -6,7 +6,7 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
-from family_ea.backup import build_archive, snapshot_bytes
+from family_ea.backup import build_archive, dreams_markdown, notes_markdown, snapshot_bytes
 from family_ea.db import Database
 from family_ea.files import FileStore
 from family_ea.main import backup
@@ -73,3 +73,27 @@ def test_backup_command_writes_the_archive(tmp_path: Path, capsys) -> None:
         assert f"files/{sha[:2]}/{sha}.jpg" in zf.namelist()
     out = capsys.readouterr().out
     assert str(path) in out and "WARNING: 1 file(s)" in out and "0" * 64 in out
+
+
+def test_archive_holds_the_notes_and_the_dreams_as_markdown(db: Database, monkeypatch) -> None:
+    _seed(db)
+    assert notes_markdown(db, KYIV) == "" and dreams_markdown(db, KYIV) == ""
+    mid = db.insert_message("oleh", "oleh", "...")
+    monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-13T09:00:00Z")
+    db.save_notes("## Канікули Олі\n- осінні: 26.10–01.11\n", "anna")
+    db.create_dream("Поїхати в Японію з Олею", created_by="anna", source_message_id=mid)
+    done = db.create_dream("Пройти Camino de Santiago", created_by="oleh", source_message_id=mid)
+    db.close_dream(done, "fulfilled")
+    gone = db.create_dream("Купити яхту", created_by="oleh", source_message_id=mid)
+    db.close_dream(gone, "dropped")
+    assert notes_markdown(db, KYIV) == (
+        "## Канікули Олі\n- осінні: 26.10–01.11\n\n---\nОновлено 13.09 12:00, anna\n"
+    )
+    assert dreams_markdown(db, KYIV) == (
+        "# Мрії\n- Поїхати в Японію з Олею (anna, 13.09)\n\n"
+        "# Здійснилось\n- Пройти Camino de Santiago (oleh, здійснилось 13.09)\n"
+    )
+    name, data, _ = build_archive(db, KYIV, now=datetime(2026, 9, 13, 3, 30, tzinfo=KYIV))
+    with zipfile.ZipFile(BytesIO(data)) as zf:
+        assert zf.namelist() == ["family-2026-09-13.db", "notes.md", "dreams.md"]
+        assert zf.read("notes.md").decode().startswith("## Канікули Олі")

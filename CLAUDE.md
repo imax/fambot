@@ -62,8 +62,9 @@ family_ea/
                 `applied` log), files_of_kind() (the photos the notes page was written from)
   transcribe.py OpenAI gpt-4o-transcribe via httpx
   ical.py       an event (timed or all-day) or a dated todo (all-day) -> .ics bytes
-  backup.py     the backup archive: a checked db snapshot + the files under files/, zipped
-                (missing files are reported, not fatal)
+  backup.py     the backup archive: a checked db snapshot + the files under files/ +
+                notes.md and dreams.md for people, zipped (missing files are reported,
+                not fatal)
   bot.py        python-telegram-bot handlers (/start /help /today /debug /facts /web, text,
                 voice, photo), the 08:30 digest job, the per-minute reminder job, «Відкрити» (a
                 login link) under the digest, /today and /web

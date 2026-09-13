@@ -1,7 +1,9 @@
-"""The backup archive: a consistent snapshot of the database and the files it refers to,
-zipped. Built by code only (no LLM);
+"""The backup archive: a consistent snapshot of the database, the files it refers to, and
+the two things worth reading without a database (`notes.md`, the notes page as kept;
+`dreams.md`, the dreams with who and when), zipped. Built by code only (no LLM);
 `python -m family_ea backup` writes one locally, the nightly mail job will send the same
-bytes. Restore: the .db to DATABASE_PATH, `files/` to FILES_DIR."""
+bytes. Restore: the .db to DATABASE_PATH, `files/` to FILES_DIR; the .md files are for
+people, everything in them is in the .db."""
 
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .context import fmt_dt
 from .db import Database
 from .files import FileStore
 
@@ -32,20 +35,50 @@ def snapshot_bytes(db: Database) -> bytes:
         return path.read_bytes()
 
 
+def notes_markdown(db: Database, tz: ZoneInfo) -> str:
+    """The notes page as kept, with when and by whom it last changed; '' when empty."""
+    notes = db.current_notes()
+    if notes is None or not notes.text.strip():
+        return ""
+    when = fmt_dt(notes.created_at, tz)
+    return f"{notes.text.strip()}\n\n---\nОновлено {when}, {notes.created_by}\n"
+
+
+def dreams_markdown(db: Database, tz: ZoneInfo) -> str:
+    """The open dreams, then the fulfilled ones, each with who and when; '' when none."""
+    lines = []
+    if open_ones := db.open_dreams():
+        lines.append("# Мрії")
+        lines += [f"- {d.text} ({d.created_by}, {fmt_dt(d.created_at, tz)[:5]})" for d in open_ones]
+    if done := db.fulfilled_dreams():
+        lines += ["", "# Здійснилось"] if lines else ["# Здійснилось"]
+        for d in done:
+            day = fmt_dt(d.closed_at or d.created_at, tz)[:5]
+            lines.append(f"- {d.text} ({d.created_by}, здійснилось {day})")
+    return "\n".join(lines) + "\n" if lines else ""
+
+
 def build_archive(
     db: Database,
     tz: ZoneInfo,
     now: datetime | None = None,
     store: FileStore | None = None,
 ) -> tuple[str, bytes, list[str]]:
-    """(file name, zip bytes, missing files): `family-YYYY-MM-DD.db` and, with a `store`,
-    `files/ab/ab12….jpg` for every row of `attachments` whose bytes are there; the hashes
-    of those that are not come back so the caller can say so."""
+    """(file name, zip bytes, missing files): `family-YYYY-MM-DD.db`, `notes.md` and
+    `dreams.md` when there is anything in them, and, with a `store`, `files/ab/ab12….jpg`
+    for every row of `attachments` whose bytes are there; the hashes of those that are
+    not come back so the caller can say so."""
     stamp = (now or datetime.now(tz)).astimezone(tz).strftime("%Y-%m-%d")
     buf = io.BytesIO()
     missing: list[str] = []
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(f"family-{stamp}.db", snapshot_bytes(db))
+        for name, text in (
+            ("notes.md", notes_markdown(db, tz)),
+            ("dreams.md", dreams_markdown(db, tz)),
+        ):
+            if text:
+                zf.writestr(name, text)
         seen: set[Path] = set()
         for a in db.list_attachments() if store else []:
             assert store
