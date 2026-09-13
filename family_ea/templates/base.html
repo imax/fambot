@@ -71,6 +71,16 @@
   dialog.lightbox { border: 0; padding: 0; background: transparent; max-width: 96vw; max-height: 96vh; }
   dialog.lightbox::backdrop { background: rgba(0, 0, 0, .85); }
   dialog.lightbox img { display: block; max-width: 96vw; max-height: 96vh; cursor: zoom-out; }
+  .doc { overflow-x: auto; }
+  .doc h1 { font-size: 1.15rem; margin: 1.5rem 0 .5rem; }
+  .doc h3 { color: #222; }
+  .doc ul { list-style: disc; padding-left: 1.3rem; margin: .3rem 0 .8rem; }
+  .doc ol { padding-left: 1.3rem; margin: .3rem 0 .8rem; }
+  .doc li { padding: .1rem 0; border: 0; }
+  .doc p { margin: .4rem 0 .8rem; }
+  .doc table { border-collapse: collapse; margin: .3rem 0 1rem; }
+  .doc th, .doc td { text-align: left; vertical-align: top; padding: .25rem .8rem .25rem 0; border-bottom: 1px solid #f0f0f0; }
+  .doc th { color: #555; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -79,6 +89,7 @@
   <a href="/"{% if path == '/' and not q %} class="current"{% endif %}>Задачі</a>
   <a href="/items"{% if path.startswith('/items') %} class="current"{% endif %}>Речі</a>
   <a href="/dreams"{% if path.startswith('/dreams') %} class="current"{% endif %}>Мрії</a>
+  <a href="/notes"{% if path.startswith('/notes') %} class="current"{% endif %}>Нотатки</a>
   <details class="admin">
     <summary>Адмін</summary>
     <div>

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from .db import Database, Dream, Event, Item, Member, Message, Reminder, TodayList, Todo
+from .db import Database, Dream, Event, Item, Member, Message, Notes, Reminder, TodayList, Todo
 from .family import Family
 
 RECENT_WINDOW_DAYS = 2  # items changed this recently are in every LLM context; older: search
@@ -264,6 +264,17 @@ def today_context_lines(lists: dict[str, TodayList], family: Family, tz: ZoneInf
         body = "\n".join(f"  {ln}" for ln in text.splitlines())
         lines.append(f"- {m.id} ({m.name}), оновлено {fmt_dt(board.created_at, tz)}:\n{body}")
     return lines
+
+
+# --- notes --------------------------------------------------------------------
+
+
+def notes_context_lines(notes: Notes | None, family: Family, tz: ZoneInfo) -> list[str]:
+    """For the LLM: when and by whom the page last changed, then its text as kept."""
+    if notes is None or not notes.text.strip():
+        return []
+    who = family.display_name(notes.created_by)
+    return [f"(оновлено {fmt_dt(notes.created_at, tz)}, {who})", notes.text.strip()]
 
 
 # --- digest -------------------------------------------------------------------
@@ -617,6 +628,12 @@ def build_context(
         section(
             "Факти про сім'ю (веде людина, стабільний фон)",
             [facts_text] if facts_text else [],
+            empty="поки порожньо",
+        ),
+        section(
+            "Нотатки (notes: одна довідкова сторінка сім'ї в Markdown, ведеш ти; змінюється лише"
+            " на явне прохання, повертай повний текст)",
+            notes_context_lines(db.current_notes(), family, tz),
             empty="поки порожньо",
         ),
         section(

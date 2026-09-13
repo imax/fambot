@@ -107,7 +107,7 @@ def test_web_pages(db: Database, family: Family) -> None:
     assert ">Задачі</a>" in home.text and 'class="current">Задачі' in home.text
     assert ">Речі</a>" in home.text and ">Користувачі</a>" in home.text
     assert ">Мрії</a>" in home.text
-    assert ">Нотатки</a>" not in home.text  # the notes went on 2026-09-12
+    assert ">Нотатки</a>" in home.text  # the one page since 2026-09-13; /journal was the log
     dreams = client.get("/dreams", headers=_auth())
     assert dreams.status_code == 200 and 'class="current">Мрії' in dreams.text
     assert "Поїхати в Японію з Олею" in dreams.text and "Анна" in dreams.text

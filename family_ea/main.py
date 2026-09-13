@@ -234,6 +234,7 @@ _OP_KIND = {
     "todos": "todo",
     "commitments": "commitment",  # rows from before 2026-09-12
     "dreams": "dream",
+    "notes": "notes",  # the one page, from 2026-09-13; `journal` above is the old log
     "reminders": "reminder",
 }
 

@@ -1,5 +1,5 @@
 """Apply LLM operations to the database: items, events, todos, dreams, reminders, today
-boards.
+boards, the notes page.
 
 Invalid ops (unknown ids, closed items, bad dates, an event without a date, a reminder
 without a time) are ignored and logged, never fatal. Closing a todo goes through
@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Applied:
-    kind: str  # 'item' | 'event' | 'todo' | 'dream' | 'reminder' | 'today'
+    kind: str  # 'item' | 'event' | 'todo' | 'dream' | 'reminder' | 'today' | 'notes'
     op: str
     id: int | None
     ok: bool
@@ -368,6 +368,15 @@ def apply_ops(
         tid = db.save_today_list(member, text, author_id)
         note = "" if member == author_id else f"for {member}"
         applied.append(Applied("today", "set", tid, True, note))
+
+    for n in result.notes:
+        text = n.text.replace("\r\n", "\n").strip()
+        current = db.current_notes()
+        if (current.text if current else "") == text:
+            applied.append(Applied("notes", "set", None, False, "unchanged"))
+            continue
+        nid = db.save_notes(text, author_id)
+        applied.append(Applied("notes", "set", nid, True, "cleared" if not text else ""))
 
     for a in applied:
         if not a.ok or a.note:

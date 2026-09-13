@@ -188,7 +188,8 @@ def test_build_context_sections(
     assert "[#1] Поговорити з пані Марією (Олег, до 10.09)" in ctx
     assert "Задачі на сьогодні:\n- [#1]" in ctx
     assert "## Події (минулі за 7 днів і всі майбутні)\nнемає" in ctx
-    assert "Нотатки" not in ctx and "journal" not in ctx
+    assert "journal" not in ctx  # the old log; the notes page has its own section
+    assert "повертай повний текст)\nпоки порожньо\n" in ctx
     assert (
         "## Мрії (dreams: спільний список, хто додав; здійснені лише на вебі)\n"
         "- [мрія #1] Поїхати в Японію з Олею (Анна)\n" in ctx

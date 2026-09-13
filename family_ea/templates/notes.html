@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Нотатки{% endblock %}
+{% block body %}
+{#- the LLM's Markdown, rendered; nothing here writes: the chat does («запиши в нотатки …») -#}
+{% if html %}
+<div class="doc">{{ html | safe }}</div>
+<p class="meta">Оновлено {{ notes.created_at | dt }}, {{ notes.created_by | person }} · версія {{ versions }}. Змінити: «запиши в нотатки …» боту.</p>
+{% else %}
+<h2>Нотатки</h2>
+<ul><li class="empty">поки порожньо: напиши боту «запиши в нотатки: …» або кинь фото розкладу з підписом</li></ul>
+{% endif %}
+{% if files %}
+<h2>Фото</h2>
+{#- what the page was written from, square thumbnails as on an item page; a tap opens the photo -#}
+<div class="photos">{% for a in files %}<a href="/files/{{ a.sha256 }}"{% if a.is_image %} data-image{% else %} target="_blank"{% endif %}>{% if a.is_image %}<img src="/files/{{ a.sha256 }}" alt="" loading="lazy">{% else %}📄 {{ a.name or a.mime }}{% endif %}</a>{% endfor %}</div>
+{% endif %}
+{% endblock %}

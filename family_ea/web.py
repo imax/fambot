@@ -4,7 +4,8 @@ There is no password. `/web` in Telegram (and «Відкрити» under the dig
 a member a link to `/login?t=…`; opening it sets a long-lived signed cookie. Read-only except
 `/facts` and `/family`, the two things a human edits by hand, and three things about a
 todo, all through the db methods the LLM ops use: done («☐»), the text («✎») and the
-order of the undated ones (dragged), on the home page. Dreams (`/dreams`) are only read.
+order of the undated ones (dragged), on the home page. Dreams (`/dreams`) and the notes
+page (`/notes`, the LLM's Markdown rendered, its source photos under it) are only read.
 """
 
 import json
@@ -20,6 +21,7 @@ from urllib.parse import urlencode
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from markdown_it import MarkdownIt
 
 from .auth import SESSION_TTL, sign, verify
 from .config import Settings
@@ -35,7 +37,7 @@ from .context import (
 )
 from .db import Attachment, Database, Item, Member
 from .family import Family
-from .files import FileStore, files_for
+from .files import FileStore, files_for, files_of_kind
 from .ical import event_ics, ics_filename, todo_ics
 
 log = logging.getLogger(__name__)
@@ -44,6 +46,8 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 SESSION_COOKIE = "session"
 DONE_SHOWN = 10  # the «Зроблено» tail of the home page
 SHA256 = re.compile(r"[0-9a-f]{64}")
+# The notes page as the LLM writes it: headings, lists, tables; raw HTML stays text.
+MARKDOWN = MarkdownIt("commonmark", {"html": False}).enable("table")
 
 
 class NotLoggedIn(Exception):
@@ -239,6 +243,22 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
             request,
             "dreams.html",
             {"dreams": db.open_dreams(), "fulfilled": db.fulfilled_dreams()},
+        )
+
+    @app.get("/notes", response_class=HTMLResponse, dependencies=[Depends(authed)])
+    async def notes_page(request: Request) -> HTMLResponse:
+        """The one reference page the LLM keeps, rendered from its Markdown, with the photos
+        it was written from. Read-only: «запиши в нотатки …» in the chat changes it."""
+        notes = db.current_notes()
+        return templates.TemplateResponse(
+            request,
+            "notes.html",
+            {
+                "notes": notes,
+                "html": MARKDOWN.render(notes.text) if notes and notes.text.strip() else "",
+                "versions": db.notes_versions(),
+                "files": files_of_kind(db, "notes"),
+            },
         )
 
     @app.get("/files/{sha256}")

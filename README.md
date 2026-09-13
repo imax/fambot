@@ -27,13 +27,17 @@ calls: all it knows is in the context the code builds for it.
 - **Reminders**: a message to one person or everyone at a given moment.
 - **Today boards** («на сьогодні»): each person's free-text list for the day, kept as one
   sentence and rewritten on request.
+- **Notes** (Нотатки): one reference page for the family in Markdown, kept by the model:
+  a school holiday schedule read off a screenshot, a packing list, a boiler note. Only on
+  an explicit ask («запиши в нотатки», «запам'ятай …», a photo captioned so); a new
+  message or photo merges into the page, every version is kept, the web shows it rendered
+  with the photos it came from.
 - **Facts**: stable background about the family, edited by a human on the web; the model
   reads it, never writes it.
 
-What happened, stories and contacts are not kept. Notes (what happened, in full, by day)
-were built in the first days and removed on 2026-09-12 as not needed yet: the bot answers
-and does not promise to write such things down; the stable part goes into the facts by
-hand.
+What happened, stories and chatter are not kept unless someone asks: the bot answers and
+does not promise to write such things down. (A journal of notes by day was built in the
+first days and removed on 2026-09-12; the one page above came on 2026-09-13.)
 
 Every push is deterministic: the 08:30 digest renders the boards, today's and tomorrow's
 events, todos due today and overdue, and stays silent when there is nothing to say.

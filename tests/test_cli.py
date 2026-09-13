@@ -19,12 +19,13 @@ LLM_RESULT = (
     '{"model": "m", "usage": {"input_tokens": 10, "output_tokens": 2},'
     ' "output": {"reply": "Записав.", "todos": [{"op": "create", "text": "Стоматолог",'
     ' "owner": "anna", "due": "2000-01-01"}],'
-    ' "dreams": [{"op": "close", "id": 3, "status": "fulfilled"}]},'
+    ' "dreams": [{"op": "close", "id": 3, "status": "fulfilled"}], "notes": [{"text": "## X"}]},'
     ' "applied": [{"kind": "todo", "op": "create", "id": 1, "ok": true, "note": ""}]}'
 )
 
 OP_LINE = "todo create: text='Стоматолог', owner='anna', due='2000-01-01'"
 DREAM_LINE = "dream close: id=3, status='fulfilled'"
+NOTES_LINE = "notes None: text='## X'"
 
 
 def _bearer() -> dict[str, str]:
@@ -122,6 +123,7 @@ def test_llm_result_lines() -> None:
         "m: 10 in, 2 out",
         OP_LINE,
         DREAM_LINE,
+        NOTES_LINE,
         "[ok] todo create #1",
     ]
     assert llm_result_lines('{"error": "boom"}') == ["error: boom"]
@@ -140,13 +142,14 @@ def test_show_log_prints_messages_with_ops(tmp_path: Path, capsys: pytest.Captur
     show_log(_settings(database_path=path), path, last=10)
     out = capsys.readouterr().out.splitlines()
     assert out[0].endswith("Олег: Стоматолог завтра о 15:30")
-    assert out[1:5] == [
+    assert out[1:6] == [
         "    m: 10 in, 2 out",
         f"    {OP_LINE}",
         f"    {DREAM_LINE}",
+        f"    {NOTES_LINE}",
         "    [ok] todo create #1",
     ]
-    assert out[5].endswith("bot -> Олег: Записав.")
+    assert out[6].endswith("bot -> Олег: Записав.")
 
 
 def test_web_login_picks_the_admin_or_the_named_member(db: Database, family: Family) -> None:

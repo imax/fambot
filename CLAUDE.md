@@ -1,8 +1,8 @@
 # Family EA
 
 Private family assistant in Telegram: two adults throw text and voice at the bot, it keeps
-one shared state (items, events, todos, dreams, reminders, today boards), answers questions
-from it,
+one shared state (items, events, todos, dreams, reminders, today boards, one notes page),
+answers questions from it,
 pushes a morning digest and sends reminders at the asked time. Deployed to Fly.io, SQLite on a volume, in real use since 2026-09-10.
 
 `docs/spec-v3.md` is the original spec (Ukrainian). It was retired on 2026-09-10: read it
@@ -46,19 +46,20 @@ family_ea/
                 `session` cookie; `pull` signs a `backup` bearer. Nothing is stored.
   family.py     Family over the members table (+ ADMIN_USER_ID); slugify() makes ids from names
   db.py         SQLite schema + all queries; dataclasses Message/Attachment/Item/Event/
-                Todo/Dream/Reminder/TodayList; item_history is written by the item methods only;
+                Todo/Dream/Reminder/Notes/TodayList; item_history is written by the item methods only;
                 _migrate() for what CREATE IF NOT EXISTS cannot express;
                 backup_to() is the online backup behind GET /backup.db
   context.py    deterministic LLM context, event agenda (today/tomorrow/later/recent),
                 todo buckets (today/overdue/open/later), today boards (blocks for the
-                web and the digest head), the dream lines, the digest text, the web home
+                web and the digest head), the dream lines, the notes page for the LLM,
+                the digest text, the web home
                 (calendar days; overdue / dated / undated todos), the search stems
   llm.py        pydantic output schema, system prompt, the one messages.parse() call
   ops.py        apply LLM ops to db, with validation and an `applied` log
   pipeline.py   store (message, then its photo as an attachment) -> context -> LLM -> ops -> reply
   files.py      FileStore (bytes under FILES_DIR by SHA-256, `ab/ab12….jpg`, never rewritten),
                 files_for() (the files under each item, from source_message_id and the
-                `applied` log)
+                `applied` log), files_of_kind() (the photos the notes page was written from)
   transcribe.py OpenAI gpt-4o-transcribe via httpx
   ical.py       an event (timed or all-day) or a dated todo (all-day) -> .ics bytes
   backup.py     the backup archive: a checked db snapshot + the files under files/, zipped
@@ -69,7 +70,8 @@ family_ea/
   web.py        FastAPI + Jinja: GET /login?t= (the bot's link; sets the cookie), GET / (the
                 boards, the timeline, the last done ones; ?q= searches), GET /items (Речі:
                 places, recent; ?place= ?owner= list), GET /items/:id (photos, history),
-                GET /dreams (Мрії: open ones, then fulfilled; read-only),
+                GET /dreams (Мрії: open ones, then fulfilled; read-only), GET /notes
+                (Нотатки: the LLM's Markdown rendered, its source photos; read-only),
                 GET /files/:sha256 (cookie or bearer),
                 GET /files.json (bearer; what `pull` mirrors), GET/POST /facts, GET/POST
                 /family, GET /messages, GET /events/:id.ics, GET /todos/:id.ics,
@@ -85,14 +87,20 @@ tests/          deterministic; the LLM is faked, nothing hits the network
 - **LLM understands, code executes.** One structured-output call per incoming message
   returns `reply` plus item/event/todo/reminder/today ops. Everything else is deterministic
   code.
-- **No notes.** «What happened», stories, contacts, prices are not stored anywhere. A
-  `journal` (Нотатки: full-text entries by day, FTS search, a web tab, `notes.md` in the
-  backup) lived from 2026-09-11 to 2026-09-12 and was removed as not needed in this
-  iteration. The prompt says so (the bot answers, does not promise to write it down, points
-  to the facts for the stable part). The production database still holds the `journal`
-  table, its FTS index and triggers with the old rows: `_migrate()` leaves them alone and
-  nothing creates or reads them; `log` still prints the old `journal` ops. If notes come
-  back, start from that commit (`git log -S JournalOp`).
+- **No journal; one notes page.** «What happened», stories, chatter are not stored. A
+  `journal` (Нотатки as full-text entries by day, FTS search, a web tab, `notes.md` in the
+  backup) lived from 2026-09-11 to 2026-09-12 and was removed as not needed. The
+  production database still holds the `journal` table, its FTS index and triggers with
+  the old rows: `_migrate()` leaves them alone and nothing creates or reads them; `log`
+  still prints the old `journal` ops (`git log -S JournalOp` for that code). Since
+  2026-09-13 «Нотатки» is something else: **one reference page for the family** (`notes`
+  table, versioned like the facts), Markdown the LLM rewrites whole, like a today board,
+  and only on an explicit ask («запиши в нотатки», «запам'ятай …», a photo captioned so):
+  a school holiday schedule from a screenshot, a camp packing list, a boiler note. The
+  page is always in the LLM context (one page, kept short), it answers questions from it,
+  and a new photo or message merges into the existing sections. The web renders it
+  (`markdown-it-py`, raw HTML off) with the photos it was written from under it
+  (`files_of_kind`), read-only. Facts stay the human's page; the notes are the LLM's.
 - **Events and todos are separate tables, not a `kind` column.** An event happens at a
   time or on a day and then passes (never overdue, only cancelled); a todo is done or
   dropped, can be overdue, and carries at most a deadline day (`due`), never a time of
@@ -159,7 +167,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   (digest, reminders, the web link); when a capability is added or removed, that list changes in
   the same commit.
 - Keep it small. Two people use this; a feature earns its place by removing a real pain.
-- **Concrete models and use cases, not a Dropbox or a Google Docs.** A feature starts from
+- **Concrete models and use cases, not a Dropbox or a Google Docs.** (The notes page is
+  the one free-text exception, and it is one page that the LLM keeps readable, not a
+  store of files or entries.) A feature starts from
   a question someone in the family actually asks («де паспорт?», «що в мене на сьогодні?»,
   «коли стоматолог?») and a narrow data model that answers exactly it (an item with a
   place, a todo with a day, an event with a time). «Store it so it is there» (files, PDFs,
@@ -211,7 +221,8 @@ The backlog may name code.
 - Three kinds of knowledge, three owners: `members` table (who talks to the bot, the
   Telegram allowlist; only `ADMIN_USER_ID` is env, the admin edits the rest on the web),
   `facts` (stable background about the family; the human edits it on the web, the LLM only
-  reads it), items/events/todos/dreams/reminders/today boards (everything people tell the bot; the
+  reads it), items/events/todos/dreams/reminders/today boards/the notes page (everything
+  people tell the bot; the
   LLM writes them).
 - Python 3.12, `uv` for deps, `ruff` for lint/format, `pytest` with `asyncio_mode=auto`.
 - FastAPI modules must not use `from __future__ import annotations`: postponed `Annotated`

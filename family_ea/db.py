@@ -1,10 +1,11 @@
 """SQLite storage: members, messages, items, events, todos, dreams, reminders, facts,
-today lists.
+notes, today lists.
 
 One connection, one process, one writer. Original messages are never mutated; items are
 removed (gone) and every change to one writes an item_history row; todos and dreams are
 closed, events are cancelled and reminders are sent, missed or cancelled, never removed (a
-past event simply passes); facts (the human-maintained standing context) keep every version;
+past event simply passes); facts (the human-maintained standing context) and the notes (the one
+reference page the LLM maintains) keep every version;
 members (who talks to the bot) are edited by the admin on the web.
 """
 
@@ -125,6 +126,13 @@ CREATE TABLE IF NOT EXISTS facts (
   text TEXT NOT NULL,
   created_at TEXT NOT NULL,
   created_by TEXT NOT NULL          -- 'web' or a family member id
+);
+
+CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY,           -- every change is a new row; the latest one is current
+  text TEXT NOT NULL,               -- the «Нотатки» page, Markdown as the LLM keeps it; '' cleared
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL          -- the family member whose message changed it
 );
 
 CREATE TABLE IF NOT EXISTS today_lists (
@@ -276,6 +284,17 @@ class Reminder:
 
 @dataclass(frozen=True)
 class Facts:
+    id: int
+    text: str
+    created_at: str
+    created_by: str
+
+
+@dataclass(frozen=True)
+class Notes:
+    """The one «Нотатки» page: a Markdown reference the LLM rewrites whole on request; a
+    new row per change, the latest is current."""
+
     id: int
     text: str
     created_at: str
@@ -742,6 +761,24 @@ class Database:
 
     def facts_versions(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0])
+
+    # --- notes ----------------------------------------------------------------
+
+    def current_notes(self) -> Notes | None:
+        row = self.conn.execute("SELECT * FROM notes ORDER BY id DESC LIMIT 1").fetchone()
+        return Notes(**dict(row)) if row else None
+
+    def save_notes(self, text: str, created_by: str) -> int:
+        """Store a new version of the page. Returns its id."""
+        cur = self.conn.execute(
+            "INSERT INTO notes (text, created_at, created_by) VALUES (?, ?, ?)",
+            (text, utc_now_iso(), created_by),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid or 0)
+
+    def notes_versions(self) -> int:
+        return int(self.conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
 
     # --- today lists --------------------------------------------------------
 

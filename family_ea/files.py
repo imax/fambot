@@ -1,13 +1,15 @@
-"""Files that came with messages: photos of things, for the inventory.
+"""Files that came with messages: photos of things, for the inventory, and the photos the
+notes page was written from.
 
 The bytes live on disk under FILES_DIR, named by their SHA-256 (`ab/ab12….jpg`), so the
 same scan sent twice is one file, nothing is ever rewritten, and any sync is «list the
 hashes, fetch the missing ones». The database keeps one row per file (`attachments`)
-pointing at the message it came with; that is the only link. A note or an item shows the
-files of the message that created it and of every later message whose ops touched it
-(the `applied` log), so no LLM op ever mentions a file. Nothing describes or indexes a
-file: the item page shows its photos as thumbnails, and that is the whole feature (a
-«Документи» tab over every file was built and removed on 2026-09-12: too much).
+pointing at the message it came with; that is the only link. An item shows the files of
+the message that created it and of every later message whose ops touched it (the
+`applied` log); the notes page shows the files of every message that changed it; so no
+LLM op ever mentions a file. Nothing describes or indexes a file: those pages show their
+photos as thumbnails, and that is the whole feature (a «Документи» tab over every file
+was built and removed on 2026-09-12: too much).
 """
 
 from __future__ import annotations
@@ -94,3 +96,13 @@ def files_for(db: Database, kind: str, records: list) -> dict[int, list[Attachme
         if found:
             out[r.id] = [found[k] for k in sorted(found)]
     return out
+
+
+def files_of_kind(db: Database, kind: str) -> list[Attachment]:
+    """Every file of a message whose `applied` log has an ok op of `kind`, in the order they
+    arrived: the sources of the one notes page (`kind` is 'notes')."""
+    return [
+        a
+        for a, m in db.attachments_with_messages()
+        if any(ap.get("kind") == kind and ap.get("ok") for ap in applied_of(m))
+    ]
