@@ -234,8 +234,8 @@ The backlog may name code.
   dependencies referencing closure variables break dependency resolution (silent 422s).
 - SQLite `LIKE`/`lower()` are ASCII-only; use the registered `ufold()` for Ukrainian text and
   `regexp()` (Python `re`) for word-prefix search. Search terms come from `context.stems()`,
-  one heuristic (`word_pattern`) behind the events, todos and items search on the web and
-  the item hits in the LLM context.
+  one heuristic (`word_pattern`) behind the events, todos, items and notes-sections search
+  on the web and the item hits in the LLM context.
 - Tests that check dates in the context monkeypatch `family_ea.db.utc_now_iso`; otherwise
   they drift with the calendar.
 

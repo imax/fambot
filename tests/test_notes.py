@@ -4,7 +4,7 @@ from datetime import datetime
 
 from fastapi.testclient import TestClient
 
-from family_ea.context import build_context
+from family_ea.context import build_context, notes_sections, search_notes
 from family_ea.db import Database, Member
 from family_ea.family import Family
 from family_ea.files import files_of_kind
@@ -92,3 +92,23 @@ def test_notes_web_page_when_empty(db: Database, family: Family) -> None:
     page = client.get("/notes", headers=_auth())
     assert page.status_code == 200 and "поки порожньо" in page.text
     assert "<h2>Фото</h2>" not in page.text and ">Нотатки</a>" in page.text
+
+
+def test_notes_search_finds_the_section_with_the_word(db: Database, family: Family) -> None:
+    text = "Вступ без заголовка.\n\n" + PAGE + "\n## Авто\n\n- зимова гума в шиномонтажі\n"
+    assert [sec.splitlines()[0] for sec in notes_sections(text)] == [
+        "Вступ без заголовка.",
+        "## Канікули Олі",
+        "## Авто",
+    ]
+    assert [sec.splitlines()[0] for sec in search_notes(text, r"\b(?:гум)")] == ["## Авто"]
+    assert search_notes(text, r"\b(?:котл)") == []
+    assert notes_sections("") == []
+
+    db.save_notes(text, "oleh")
+    client = TestClient(build_web(_settings(), family, db))
+    page = client.get("/", params={"q": "гуми"}, headers=_auth()).text  # inflected
+    assert "<h2>Авто</h2>" in page and "Канікули" not in page
+    assert 'href="/notes"' in page
+    page = client.get("/", params={"q": "канікули"}, headers=_auth()).text
+    assert "<td>26.10–01.11</td>" in page and "гума" not in page

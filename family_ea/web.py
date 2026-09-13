@@ -32,6 +32,7 @@ from .context import (
     fmt_due,
     fmt_event_when,
     parse_iso,
+    search_notes,
     today_blocks,
     word_pattern,
 )
@@ -147,11 +148,13 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
         """The boards (the viewer's own first), the timeline, the last done todos;
-        `?q=` searches instead."""
+        `?q=` searches instead: events, todos, items, and the sections of the notes page."""
         if q and q.strip():
             q = q.strip()
             pattern = word_pattern(q)
             items = db.search_items(pattern, limit=50) if pattern else []
+            notes = db.current_notes()
+            sections = search_notes(notes.text, pattern) if notes and pattern else []
             return templates.TemplateResponse(
                 request,
                 "search.html",
@@ -161,6 +164,7 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
                     "todos": db.search_todos(pattern) if pattern else [],
                     "items": items,
                     "item_files": files_for(db, "item", items),
+                    "notes": [MARKDOWN.render(sec) for sec in sections],
                 },
             )
         now = datetime.now(settings.tz)

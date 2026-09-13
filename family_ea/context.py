@@ -553,6 +553,25 @@ def word_pattern(text: str, max_terms: int = 12) -> str | None:
     return r"\b(?:" + "|".join(re.escape(s) for s in terms) + ")" if terms else None
 
 
+def notes_sections(text: str) -> list[str]:
+    """The page split at its «## …» headings, each section with its heading; the text
+    before the first heading is a section of its own."""
+    sections: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("## ") or not sections:
+            sections.append(line)
+        else:
+            sections[-1] += "\n" + line
+    return [sec.strip() for sec in sections if sec.strip()]
+
+
+def search_notes(text: str, pattern: str) -> list[str]:
+    """The sections of the page with a word starting with one of the stems (`pattern` is
+    from `word_pattern`, matched on the casefolded text as the db's REGEXP does)."""
+    regex = re.compile(pattern)
+    return [sec for sec in notes_sections(text) if regex.search(sec.casefold())]
+
+
 # --- context ------------------------------------------------------------------
 
 

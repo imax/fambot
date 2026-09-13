@@ -9,6 +9,10 @@
 <ul>
   {% for c in todos %}{% include "_todo.html" %}{% else %}<li class="empty">нічого</li>{% endfor %}
 </ul>
+<h2>Нотатки · «{{ q }}»</h2>
+{#- the sections of the one page with the word, rendered as on /notes -#}
+{% for html in notes %}<div class="doc">{{ html | safe }}</div>{% else %}<ul><li class="empty">нічого</li></ul>{% endfor %}
+{% if notes %}<p class="meta"><a href="/notes">Уся сторінка</a></p>{% endif %}
 <h2>Речі · «{{ q }}»</h2>
 <ul>
   {% for i in items %}{% include "_item.html" %}{% else %}<li class="empty">нічого</li>{% endfor %}
