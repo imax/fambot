@@ -114,7 +114,8 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   same goes for any new kind of thing (reminders): its own table, its own ops.
 - **A dream is a shared list entry with an author, not a todo without a date.** `dreams`
   (2026-09-13): text, who dreamt it up (`created_by`, shown to both), open / fulfilled /
-  dropped; no owner, no date, never overdue, no photos. The LLM files one only on an
+  dropped; no owner, no date anywhere (not on the page, not in `dreams.md`), never
+  overdue, no photos; the latest first. The LLM files one only on an
   explicit «мрію…» / «в мрії: …»; «хочу купити диван» stays a todo or nothing. Every open
   dream is in the LLM context (they are few); the web tab is read-only, changes go
   through the chat.

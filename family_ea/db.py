@@ -1041,9 +1041,9 @@ class Database:
         return _dream(row) if row else None
 
     def open_dreams(self) -> list[Dream]:
-        """The family's dreams, oldest first: the list grows at the bottom."""
+        """The family's dreams, the latest first: what someone just thought of is on top."""
         rows = self.conn.execute(
-            "SELECT * FROM dreams WHERE status = 'open' ORDER BY id"
+            "SELECT * FROM dreams WHERE status = 'open' ORDER BY id DESC"
         ).fetchall()
         return [_dream(r) for r in rows]
 

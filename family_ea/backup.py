@@ -1,6 +1,6 @@
 """The backup archive: a consistent snapshot of the database, the files it refers to, and
 the two things worth reading without a database (`notes.md`, the notes page as kept;
-`dreams.md`, the dreams with who and when), zipped. Built by code only (no LLM);
+`dreams.md`, the dreams with whose they are), zipped. Built by code only (no LLM);
 `python -m family_ea backup` writes one locally, the nightly mail job will send the same
 bytes. Restore: the .db to DATABASE_PATH, `files/` to FILES_DIR; the .md files are for
 people, everything in them is in the .db."""
@@ -44,17 +44,16 @@ def notes_markdown(db: Database, tz: ZoneInfo) -> str:
     return f"{notes.text.strip()}\n\n---\nОновлено {when}, {notes.created_by}\n"
 
 
-def dreams_markdown(db: Database, tz: ZoneInfo) -> str:
-    """The open dreams, then the fulfilled ones, each with who and when; '' when none."""
+def dreams_markdown(db: Database) -> str:
+    """The open dreams, the latest first, then the fulfilled ones, each with whose it is;
+    no dates, as on the page: a dream has none. '' when there are none at all."""
     lines = []
     if open_ones := db.open_dreams():
         lines.append("# Мрії")
-        lines += [f"- {d.text} ({d.created_by}, {fmt_dt(d.created_at, tz)[:5]})" for d in open_ones]
+        lines += [f"- {d.text} ({d.created_by})" for d in open_ones]
     if done := db.fulfilled_dreams():
         lines += ["", "# Здійснилось"] if lines else ["# Здійснилось"]
-        for d in done:
-            day = fmt_dt(d.closed_at or d.created_at, tz)[:5]
-            lines.append(f"- {d.text} ({d.created_by}, здійснилось {day})")
+        lines += [f"- {d.text} ({d.created_by})" for d in done]
     return "\n".join(lines) + "\n" if lines else ""
 
 
@@ -75,7 +74,7 @@ def build_archive(
         zf.writestr(f"family-{stamp}.db", snapshot_bytes(db))
         for name, text in (
             ("notes.md", notes_markdown(db, tz)),
-            ("dreams.md", dreams_markdown(db, tz)),
+            ("dreams.md", dreams_markdown(db)),
         ):
             if text:
                 zf.writestr(name, text)

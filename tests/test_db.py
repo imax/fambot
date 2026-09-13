@@ -134,7 +134,7 @@ def test_dream_lifecycle(db: Database) -> None:
     mid = db.insert_message("oleh", "oleh", "мрію пройти Camino de Santiago")
     first = db.create_dream("Пройти Camino de Santiago", created_by="oleh", source_message_id=mid)
     second = db.create_dream("Поїхати в Японію з Олею", created_by="anna", source_message_id=mid)
-    assert [d.id for d in db.open_dreams()] == [first, second]  # oldest first
+    assert [d.id for d in db.open_dreams()] == [second, first]  # the latest first
     assert db.fulfilled_dreams() == []
 
     assert db.update_dream(first, "Пройти Camino de Santiago пішки") is True

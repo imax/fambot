@@ -77,7 +77,7 @@ def test_backup_command_writes_the_archive(tmp_path: Path, capsys) -> None:
 
 def test_archive_holds_the_notes_and_the_dreams_as_markdown(db: Database, monkeypatch) -> None:
     _seed(db)
-    assert notes_markdown(db, KYIV) == "" and dreams_markdown(db, KYIV) == ""
+    assert notes_markdown(db, KYIV) == "" and dreams_markdown(db) == ""
     mid = db.insert_message("oleh", "oleh", "...")
     monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-13T09:00:00Z")
     db.save_notes("## Канікули Олі\n- осінні: 26.10–01.11\n", "anna")
@@ -89,9 +89,9 @@ def test_archive_holds_the_notes_and_the_dreams_as_markdown(db: Database, monkey
     assert notes_markdown(db, KYIV) == (
         "## Канікули Олі\n- осінні: 26.10–01.11\n\n---\nОновлено 13.09 12:00, anna\n"
     )
-    assert dreams_markdown(db, KYIV) == (
-        "# Мрії\n- Поїхати в Японію з Олею (anna, 13.09)\n\n"
-        "# Здійснилось\n- Пройти Camino de Santiago (oleh, здійснилось 13.09)\n"
+    assert dreams_markdown(db) == (  # no dates, as on the page
+        "# Мрії\n- Поїхати в Японію з Олею (anna)\n\n"
+        "# Здійснилось\n- Пройти Camino de Santiago (oleh)\n"
     )
     name, data, _ = build_archive(db, KYIV, now=datetime(2026, 9, 13, 3, 30, tzinfo=KYIV))
     with zipfile.ZipFile(BytesIO(data)) as zf:

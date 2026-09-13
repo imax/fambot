@@ -31,7 +31,6 @@ from .context import (
     fmt_dt,
     fmt_due,
     fmt_event_when,
-    parse_iso,
     search_notes,
     today_blocks,
     word_pattern,
@@ -67,9 +66,6 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
     templates.env.filters["dt"] = lambda iso: fmt_dt(iso, settings.tz)
     templates.env.filters["date"] = fmt_date
     templates.env.filters["day"] = lambda iso: fmt_dt(iso, settings.tz)[:5]
-    templates.env.filters["dmy"] = lambda iso: (
-        parse_iso(iso).astimezone(settings.tz).strftime("%d.%m.%Y")
-    )
     templates.env.filters["due"] = fmt_due
     templates.env.filters["when"] = lambda e: fmt_event_when(e, settings.tz)
     templates.env.filters["person"] = family.display_name
@@ -241,8 +237,8 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
 
     @app.get("/dreams", response_class=HTMLResponse, dependencies=[Depends(authed)])
     async def dreams_page(request: Request) -> HTMLResponse:
-        """The family's dreams, oldest first, then the ones that came true. Read-only: a
-        dream is added, reworded, fulfilled or let go in the chat («мрію …»)."""
+        """The family's dreams, the latest first, then the ones that came true. No dates:
+        a dream has none. Read-only: it is added, reworded, fulfilled or let go in the chat."""
         return templates.TemplateResponse(
             request,
             "dreams.html",

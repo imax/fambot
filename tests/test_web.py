@@ -113,6 +113,7 @@ def test_web_pages(db: Database, family: Family) -> None:
     dreams = client.get("/dreams", headers=_auth())
     assert dreams.status_code == 200 and 'class="current">Мрії' in dreams.text
     assert "Поїхати в Японію з Олею" in dreams.text and "Анна" in dreams.text
+    assert "2026" not in dreams.text  # a dream has no dates
     assert "<h2>Здійснилось</h2>" in dreams.text and "Camino" in dreams.text
     assert "яхту" not in dreams.text  # let go: shown nowhere
     assert client.get("/dreams").status_code == 401
