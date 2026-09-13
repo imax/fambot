@@ -13,7 +13,7 @@ from .db import Database, Member
 from .family import Family
 from .files import FileStore
 from .llm import Image, LlmResult, Understander
-from .ops import Applied, apply_ops
+from .ops import Applied, apply_ops, failure_note
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +89,7 @@ class Pipeline:
             message_id=message_id,
             family=self.family,
             tz=self.tz,
+            with_photo=photo is not None,
         )
         self.db.set_llm_result(
             message_id,
@@ -105,5 +106,10 @@ class Pipeline:
         )
 
         reply = call.result.reply.strip() or "Ок."
+        if warning := failure_note(applied):
+            # The reply was written before the ops ran; an op that did not go through
+            # is said under it, and stays in the stored reply for the next context.
+            log.warning("message %s: %s", message_id, warning)
+            reply = f"{reply}\n\n{warning}"
         bot_message_id = self.db.insert_message("bot", author.id, reply)
         return Outcome(message_id, bot_message_id, reply, call.result, applied)

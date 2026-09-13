@@ -85,8 +85,11 @@ tests/          deterministic; the LLM is faked, nothing hits the network
 ## Principles
 
 - **LLM understands, code executes.** One structured-output call per incoming message
-  returns `reply` plus item/event/todo/reminder/today ops. Everything else is deterministic
-  code.
+  returns `reply` plus item/event/todo/dream/reminder/today/notes ops. Everything else is
+  deterministic code. The reply is written before the ops run, so it can claim what did
+  not happen; when an op fails (`ops.failures`: not ok, and not merely «unchanged»), the
+  pipeline appends «⚠️ Не вийшло: …» under the reply, and that goes into the stored bot
+  message too (2026-09-13, after a reply said «прибрав» over three no-op updates).
 - **No journal; one notes page.** «What happened», stories, chatter are not stored. A
   `journal` (Нотатки as full-text entries by day, FTS search, a web tab, `notes.md` in the
   backup) lived from 2026-09-11 to 2026-09-12 and was removed as not needed. The
@@ -134,7 +137,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   link: an item shows the files of the message that created it and of every
   message whose `applied` log names it (`files.files_for`); no LLM op mentions a file and
   nothing describes one. An item `update` that changes nothing is still `ok` in that log,
-  so «ось ще фото коробки» (an update with the id and no fields) puts the photo under it. Photos are for the inventory: a «Фото» block of thumbnails on
+  so «ось ще фото коробки» (an update with the id and no fields, with a photo) puts the
+  photo under it; the same update without a photo is a failure («nothing to update»),
+  since the LLM then meant something it could not say. Photos are for the inventory: a «Фото» block of thumbnails on
   the item page, that is the whole feature. A «Документи» tab over every file, with an
   LLM description per photo (`photo` field, `attachments.description`), was built on
   2026-09-11 and removed on 2026-09-12 as too much; the column stays, unused. The prompt
@@ -248,5 +253,7 @@ multipart POST in `family_ea/transcribe.py`. That is the only OpenAI usage; the 
 - No thinking/`budget_tokens` config needed; use `thinking: {type: "adaptive"}` if enabling.
 - Op fields in `llm.py` are never `X | None`: nullable fields inflate the structured-output
   grammar and the API rejects the schema («compiled grammar is too large»; hit 2026-09-11
-  when items were added). `''` / `0` mean «not given». Test a schema change with `chat`
-  before deploying: the failure is a 400 on every message.
+  when items were added). `''` / `0` mean «not given»; a lone `-` (`ops.CLEAR`) clears an
+  optional field (an item's note or owner, a todo's deadline, an event's end), since the
+  LLM has no other way to say «прибери примітку». Test a schema change with `chat` before
+  deploying: the failure is a 400 on every message.

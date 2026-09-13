@@ -1,7 +1,7 @@
 from family_ea.db import Database
 from family_ea.family import Family
 from family_ea.llm import LlmResult
-from family_ea.ops import apply_ops, normalize_datetime
+from family_ea.ops import apply_ops, failure_note, normalize_datetime
 from tests.conftest import KYIV
 
 SPEC_EXAMPLE = {
@@ -202,7 +202,9 @@ def test_apply_item_ops(db: Database, family: Family) -> None:
             ],
         }
     )
-    applied = apply_ops(db, r2, author_id="anna", message_id=mid, family=family, tz=KYIV)
+    applied = apply_ops(
+        db, r2, author_id="anna", message_id=mid, family=family, tz=KYIV, with_photo=True
+    )
     assert [(a.ok, a.note) for a in applied] == [
         (True, "moved"),
         (True, "unchanged"),
@@ -260,3 +262,99 @@ def test_apply_dream_ops(db: Database, family: Family) -> None:
     d = db.get_dream(did)
     assert d and d.status == "fulfilled" and d.text == "Пройти Camino de Santiago разом"
     assert d.created_by == "oleh"  # the author stays whoever dreamt it up
+
+
+def test_an_empty_item_update_without_a_photo_is_flagged(db: Database, family: Family) -> None:
+    """The LLM sent an update with no fields and no photo: it meant something («прибери
+    примітку») it could not say; that is a failure under the reply, not a silent ok."""
+    mid = db.insert_message("oleh", "oleh", "...")
+    iid = db.create_item(
+        "Паспорт", owner=None, place=None, spot=None, note="до 2030",
+        created_by="oleh", source_message_id=mid,
+    )  # fmt: skip
+    r = LlmResult.model_validate({"reply": "Прибрав", "items": [{"op": "update", "id": iid}]})
+    applied = apply_ops(db, r, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+    assert [(a.ok, a.note) for a in applied] == [(False, "nothing to update")]
+    assert failure_note(applied) == "⚠️ Не вийшло: змінити річ #1."
+    applied = apply_ops(
+        db, r, author_id="oleh", message_id=mid, family=family, tz=KYIV, with_photo=True
+    )
+    assert [(a.ok, a.note) for a in applied] == [(True, "unchanged")]
+    assert failure_note(applied) == ""
+
+
+def test_a_dash_clears_an_optional_field(db: Database, family: Family) -> None:
+    """The LLM cannot send null; a lone «-» clears: the note or owner of an item, the
+    deadline or owner of a todo, the end or person of an event, a reminder's recipient.
+    Required fields (a name, a text, a start) never clear."""
+    mid = db.insert_message("oleh", "oleh", "...")
+
+    def apply(payload: dict) -> list:
+        r = LlmResult.model_validate({"reply": "", **payload})
+        return apply_ops(db, r, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+
+    iid = db.create_item(
+        "Паспорт Олі", owner="Оля", place="офіс", spot="сейф", note="до 2030",
+        created_by="oleh", source_message_id=mid,
+    )  # fmt: skip
+    (a,) = apply({"items": [{"op": "update", "id": iid, "name": "-", "owner": "-", "note": "-"}]})
+    assert (a.ok, a.note) == (True, "corrected")
+    item = db.get_item(iid)
+    assert item and item.name == "Паспорт Олі" and item.owner is None and item.note is None
+    assert item.place == "офіс" and item.spot == "сейф"
+    (a,) = apply({"items": [{"op": "update", "id": iid, "place": "-"}]})
+    assert a.note == "moved"
+    item = db.get_item(iid)
+    assert item and item.place is None and item.spot is None  # the spot goes with the place
+
+    tid = db.create_todo(
+        "Замовити воду", owner="anna", created_by="oleh", source_message_id=mid, due="2026-09-20"
+    )
+    (a,) = apply({"todos": [{"op": "update", "id": tid, "text": "-", "owner": "-", "due": "-"}]})
+    assert a.ok
+    t = db.get_todo(tid)
+    assert t and t.text == "Замовити воду" and t.owner is None and t.due is None
+
+    eid = db.create_event(
+        "Стоматолог", who="anna", created_by="oleh", source_message_id=mid,
+        starts_at="2026-09-20T12:00:00Z", until="2026-09-20T13:30:00Z",
+    )  # fmt: skip
+    (a,) = apply({"events": [{"op": "update", "id": eid, "who": "-", "until": "-"}]})
+    assert a.ok
+    e = db.get_event(eid)
+    assert e and e.who is None and e.until is None and e.starts_at == "2026-09-20T12:00:00Z"
+    (a,) = apply({"events": [{"op": "update", "id": eid, "starts_at": "-", "date_from": "-"}]})
+    assert a.ok is False and "starts_at cannot be cleared" in a.note
+    assert "date_from cannot be cleared" in a.note
+    e = db.get_event(eid)
+    assert e and e.starts_at == "2026-09-20T12:00:00Z"
+
+    rid = db.create_reminder(
+        "Квіти", who="anna", at="2026-09-20T06:00:00Z", created_by="oleh", source_message_id=mid
+    )
+    (a,) = apply({"reminders": [{"op": "update", "id": rid, "who": "-", "at": "-"}]})
+    assert a.ok and "at cannot be cleared" in a.note
+    r = db.get_reminder(rid)
+    assert r and r.who is None and r.at == "2026-09-20T06:00:00Z"
+
+    # a dash where a text is required creates nothing
+    (a,) = apply({"todos": [{"op": "create", "text": "-"}]})
+    assert (a.ok, a.note) == (False, "empty text")
+
+
+def test_failure_note_names_what_did_not_go_through(db: Database, family: Family) -> None:
+    mid = db.insert_message("oleh", "oleh", "...")
+    r = LlmResult.model_validate(
+        {
+            "reply": "Прибрав і переніс",
+            "items": [{"op": "remove", "id": 77}],
+            "events": [{"op": "create", "text": "Без дати"}],
+            "todos": [{"op": "close", "id": 5}],
+            "today": [{"text": ""}],  # the board is already empty: «unchanged», not a failure
+        }
+    )
+    applied = apply_ops(db, r, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+    assert (
+        failure_note(applied) == "⚠️ Не вийшло: прибрати річ #77, створити подію, закрити задачу #5."
+    )
+    assert failure_note([]) == ""

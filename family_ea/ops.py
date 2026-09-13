@@ -2,7 +2,10 @@
 boards, the notes page.
 
 Invalid ops (unknown ids, closed items, bad dates, an event without a date, a reminder
-without a time) are ignored and logged, never fatal. Closing a todo goes through
+without a time) are ignored and logged, never fatal; `failure_note` puts them under the
+reply, so what the LLM claimed and what happened do not drift apart unnoticed. An empty
+field means «not given»; a lone dash (`CLEAR`) clears an optional one: the LLM cannot send
+null (see llm.py). Closing a todo goes through
 `close_todo`, a dream through `close_dream`, cancelling an event through `cancel_event`, a
 reminder through `cancel_reminder`; nothing else closes or cancels.
 """
@@ -19,6 +22,26 @@ from .family import Family
 from .llm import EventOp, ItemOp, LlmResult, ReminderOp, TodoOp
 
 log = logging.getLogger(__name__)
+
+CLEAR = "-"  # in an optional field: clear it («прибери примітку»)
+# For the ⚠️ line under the reply: the kind in the accusative, the op as a verb.
+KIND_UK = {
+    "item": "річ",
+    "event": "подію",
+    "todo": "задачу",
+    "dream": "мрію",
+    "reminder": "нагадування",
+    "today": "список на сьогодні",
+    "notes": "нотатки",
+}
+OP_UK = {
+    "create": "створити",
+    "update": "змінити",
+    "remove": "прибрати",
+    "cancel": "скасувати",
+    "close": "закрити",
+    "set": "записати",
+}
 
 
 @dataclass(frozen=True)
@@ -62,18 +85,45 @@ def normalize_member(member_id: str, family: Family) -> str | None:
 
 
 def _text(value: str) -> str | None:
-    """Trimmed, or None when nothing was given."""
-    return value.strip() or None
+    """A required text field: trimmed, or None when nothing (or a lone dash) was given."""
+    value = value.strip()
+    return value if value and value != CLEAR else None
+
+
+def _given(value: str) -> tuple[bool, str | None]:
+    """An optional field: (given, value); a lone dash is given and means None, «clear it»."""
+    value = value.strip()
+    if not value:
+        return False, None
+    return True, (None if value == CLEAR else value)
+
+
+def failures(applied: list[Applied]) -> list[Applied]:
+    """Ops that meant a change and made none. Not «unchanged»: the same text again is fine."""
+    return [a for a in applied if not a.ok and a.note != "unchanged"]
+
+
+def failure_note(applied: list[Applied]) -> str:
+    """The line under the reply when an op did not go through: the reply was written before
+    the ops ran, so its claim («прибрав») must not stand alone. '' when all went through."""
+    parts = []
+    for a in failures(applied):
+        what = f"{OP_UK.get(a.op.partition(':')[0], a.op)} {KIND_UK.get(a.kind, a.kind)}"
+        parts.append(f"{what} #{a.id}" if a.id else what)
+    return f"⚠️ Не вийшло: {', '.join(parts)}." if parts else ""
 
 
 def _item_fields(i: ItemOp) -> tuple[dict, list[str]]:
-    """Fields given on the op, trimmed. A new place without a spot clears the old spot:
-    «переклав у квартиру» rarely means the same shelf."""
+    """Fields given on the op, trimmed; a dash clears one (not the name). A new place
+    without a spot clears the old spot: «переклав у квартиру» rarely means the same shelf."""
     fields: dict[str, str | None] = {}
     notes: list[str] = []
-    for name in ("name", "owner", "place", "spot", "note"):
-        if (value := _text(getattr(i, name))) is not None:
-            fields[name] = value
+    if (name := _text(i.name)) is not None:
+        fields["name"] = name
+    for field in ("owner", "place", "spot", "note"):
+        given, value = _given(getattr(i, field))
+        if given:
+            fields[field] = value
     if "place" in fields and "spot" not in fields:
         fields["spot"] = None
     return fields, notes
@@ -85,17 +135,17 @@ def _todo_fields(t: TodoOp, family: Family) -> tuple[dict, list[str]]:
     notes: list[str] = []
     if (text := _text(t.text)) is not None:
         fields["text"] = text
-    if t.owner:
-        owner = normalize_member(t.owner, family)
-        if owner is None:
+    given, owner = _given(t.owner)
+    if given:
+        if owner is not None and (owner := normalize_member(owner, family)) is None:
             notes.append(f"unknown owner {t.owner!r} -> null")
         fields["owner"] = owner
-    if t.due:
-        due = normalize_date(t.due)
-        if due is None:
+    given, due = _given(t.due)
+    if given:
+        if due is not None and (due := normalize_date(due)) is None:
             notes.append(f"bad due {t.due!r} dropped")
         else:
-            fields["due"] = due
+            fields["due"] = due  # None: the deadline goes («без дати»)
     return fields, notes
 
 
@@ -105,27 +155,38 @@ def _event_fields(e: EventOp, family: Family, tz: ZoneInfo) -> tuple[dict, list[
     notes: list[str] = []
     if (text := _text(e.text)) is not None:
         fields["text"] = text
-    if e.who:
-        who = normalize_member(e.who, family)
-        if who is None:
+    given, who = _given(e.who)
+    if given:
+        if who is not None and (who := normalize_member(who, family)) is None:
             notes.append(f"unknown who {e.who!r} -> null")
         fields["who"] = who
     for name in ("starts_at", "until"):
-        raw = getattr(e, name)
-        if raw:
-            value = normalize_datetime(raw, tz)
-            if value is None:
-                notes.append(f"bad {name} {raw!r} dropped")
+        given, raw = _given(getattr(e, name))
+        if not given:
+            continue
+        if raw is None:  # a dash: only the end can go (one hour again); the start cannot
+            if name == "until":
+                fields["until"] = None
             else:
-                fields[name] = value
+                notes.append("starts_at cannot be cleared")
+            continue
+        value = normalize_datetime(raw, tz)
+        if value is None:
+            notes.append(f"bad {name} {raw!r} dropped")
+        else:
+            fields[name] = value
     for name in ("date_from", "date_to"):
-        raw = getattr(e, name)
-        if raw:
-            value = normalize_date(raw)
-            if value is None:
-                notes.append(f"bad {name} {raw!r} dropped")
-            else:
-                fields[name] = value
+        given, raw = _given(getattr(e, name))
+        if not given:
+            continue
+        if raw is None:
+            notes.append(f"{name} cannot be cleared")
+            continue
+        value = normalize_date(raw)
+        if value is None:
+            notes.append(f"bad {name} {raw!r} dropped")
+        else:
+            fields[name] = value
     if "starts_at" in fields:
         fields["date_from"] = fields["date_to"] = None
     elif "date_from" in fields or "date_to" in fields:
@@ -143,14 +204,16 @@ def _reminder_fields(r: ReminderOp, family: Family, tz: ZoneInfo) -> tuple[dict,
     notes: list[str] = []
     if (text := _text(r.text)) is not None:
         fields["text"] = text
-    if r.who:
-        who = normalize_member(r.who, family)
-        if who is None:
+    given, who = _given(r.who)
+    if given:
+        if who is not None and (who := normalize_member(who, family)) is None:
             notes.append(f"unknown who {r.who!r} -> null")
-        fields["who"] = who
-    if r.at:
-        at = normalize_datetime(r.at, tz)
+        fields["who"] = who  # None: to everyone
+    given, at = _given(r.at)
+    if given:
         if at is None:
+            notes.append("at cannot be cleared")
+        elif (at := normalize_datetime(at, tz)) is None:
             notes.append(f"bad at {r.at!r} dropped")
         else:
             fields["at"] = at
@@ -178,6 +241,7 @@ def apply_ops(
     message_id: int,
     family: Family,
     tz: ZoneInfo,
+    with_photo: bool = False,
 ) -> list[Applied]:
     applied: list[Applied] = []
 
@@ -205,7 +269,11 @@ def apply_ops(
                 applied.append(Applied("item", "update", i.id, True, "; ".join([kind, *notes])))
                 continue
             current = db.get_item(i.id) if i.id else None
-            if current and not current.removed_at:
+            if current and not current.removed_at and not fields and not with_photo:
+                # No fields and no photo: the LLM meant something it could not say (a
+                # field it wanted to clear without the dash); flagged, not silently ok.
+                applied.append(Applied("item", "update", i.id, False, "nothing to update"))
+            elif current and not current.removed_at:
                 # Nothing differs, still a hit: a photo sent with the message lands under the
                 # item («ось ще фото коробки»), through the applied log.
                 note = "; ".join(["unchanged", *notes])
@@ -249,7 +317,8 @@ def apply_ops(
                 )
                 continue
             if not fields:
-                applied.append(Applied("event", "update", e.id or None, False, "nothing to update"))
+                note = "; ".join([*notes, "nothing to update"])
+                applied.append(Applied("event", "update", e.id or None, False, note))
                 continue
             _check_until(fields, fields.get("starts_at", existing.starts_at), existing.until, notes)
             ok = db.update_event(existing.id, **fields)
@@ -333,9 +402,8 @@ def apply_ops(
             applied.append(Applied("reminder", "create", rid, True, note))
         elif r.op == "update":
             if not r.id or not fields:
-                applied.append(
-                    Applied("reminder", "update", r.id or None, False, "nothing to update")
-                )
+                note = "; ".join([*notes, "nothing to update"])
+                applied.append(Applied("reminder", "update", r.id or None, False, note))
                 continue
             ok = db.update_reminder(r.id, **fields)
             applied.append(

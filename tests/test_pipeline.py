@@ -117,3 +117,29 @@ async def test_pipeline_sends_the_photo_and_keeps_its_id(
     assert "з фото (підпис нижче):\n(без підпису)" in llm.contexts[1]
     # the earlier photo message shows in the recent messages with a marker, not the image
     assert "(з фото): зроби з цього таску" in llm.contexts[1]
+
+
+async def test_pipeline_says_under_the_reply_what_did_not_go_through(
+    db: Database, family: Family, oleh: Member
+) -> None:
+    """The reply is written before the ops run; an op that fails is named under it, in
+    the sent reply and in the stored bot message alike."""
+    llm = FakeLlm(
+        LlmResult.model_validate({"reply": "Прибрав", "items": [{"op": "remove", "id": 77}]})
+    )
+    outcome = await Pipeline(db, family, llm, KYIV).handle(oleh, "прибери коробку")
+    assert outcome.reply == "Прибрав\n\n⚠️ Не вийшло: прибрати річ #77."
+    assert db.get_message(outcome.bot_message_id).raw_text == outcome.reply
+    # a photo makes an empty item update a hit (the photo lands under the item), no warning
+    mid = db.insert_message("oleh", "oleh", "коробка")
+    iid = db.create_item(
+        "Коробка", owner=None, place=None, spot=None, note=None,
+        created_by="oleh", source_message_id=mid,
+    )  # fmt: skip
+    llm = FakeLlm(LlmResult.model_validate({"reply": "Є", "items": [{"op": "update", "id": iid}]}))
+    outcome = await Pipeline(db, family, llm, KYIV).handle(
+        oleh, "ось ще фото", photo=Image(b"\xff\xd8", "image/jpeg"), photo_file_id="f"
+    )
+    assert outcome.reply == "Є"
+    outcome = await Pipeline(db, family, llm, KYIV).handle(oleh, "прибери примітку")
+    assert outcome.reply == "Є\n\n⚠️ Не вийшло: змінити річ #1."
