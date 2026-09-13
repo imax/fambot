@@ -16,22 +16,18 @@ calls: all it knows is in the context the code builds for it.
 
 ## What it keeps
 
+- **Todos** (Задачі): something to do, with an owner and at most a deadline day. Closed
+  by saying so in the chat or with a tap on the web.
 - **Things** (Речі): what the family has, whose it is and where it lies right now, with
   a history of moves and the photos it was described from. «Паспорт Олі лежить у сейфі».
 - **Events**: something happens at a time or on a day and then passes.
-- **Todos** (Задачі): something to do, with an owner and at most a deadline day. Closed
-  by saying so in the chat or with a tap on the web.
+- **Notes** (Нотатки): family wiki, updated by the model.
 - **Dreams** (Мрії): what the family wants some day, one shared list, each with the
   person who dreamt it up. No date, never overdue; fulfilled or let go. «Мрію пройти
   Camino de Santiago».
 - **Reminders**: a message to one person or everyone at a given moment.
 - **Today boards** («на сьогодні»): each person's free-text list for the day, kept as one
   sentence and rewritten on request.
-- **Notes** (Нотатки): one reference page for the family in Markdown, kept by the model:
-  a school holiday schedule read off a screenshot, a packing list, a boiler note. Only on
-  an explicit ask («запиши в нотатки», «запам'ятай …», a photo captioned so); a new
-  message or photo merges into the page, every version is kept, the web shows it rendered
-  with the photos it came from.
 - **Facts**: stable background about the family, edited by a human on the web; the model
   reads it, never writes it.
 
