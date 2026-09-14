@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 
@@ -20,7 +19,7 @@ from .db import Database, Member
 from .family import Family
 from .files import FileStore, sha256_hex
 from .llm import Image, Llm
-from .pipeline import Pipeline
+from .pipeline import Pipeline, llm_result_lines
 from .transcribe import Transcriber
 from .web import build_web
 
@@ -106,18 +105,22 @@ def web_login(settings: Settings, family: Family, as_user: str | None) -> tuple[
 
 async def web(settings: Settings, as_user: str | None = None) -> None:
     """The web view alone on the local db, no bot: a look at a change in a browser before
-    it ships (`make local` first for production data). Prints a login link, then serves."""
+    it ships (`make local` first for production data). Prints a login link, then serves.
+    With ANTHROPIC_API_KEY set, the page has a «Чат» tab: the pipeline from the browser,
+    as the logged-in member, on this db."""
     db = Database(settings.database_path)
     family = Family(db, settings.admin_user_id)
     member, link = web_login(settings, family, as_user)
+    pipeline = build_pipeline(settings, db, family) if settings.anthropic_api_key else None
     print(
         f"web on http://127.0.0.1:{settings.port}, db={settings.database_path};"
+        f" chat {'on, model=' + settings.llm_model if pipeline else 'off (no ANTHROPIC_API_KEY)'};"
         f" log in as {member.id} ({member.name}):\n{link}",
         flush=True,
     )
     server = uvicorn.Server(
         uvicorn.Config(
-            build_web(settings, family, db),
+            build_web(settings, family, db, pipeline=pipeline),
             host="127.0.0.1",
             port=settings.port,
             log_level="warning",
@@ -224,43 +227,6 @@ def _pull_files(client: httpx.Client, base: str, headers: dict[str, str], store:
         store.put(r.content, f["mime"])
         new += 1
     print(f"{len(wanted)} files, {new} new -> {store.root}")
-
-
-_OP_KIND = {
-    "items": "item",
-    "journal": "entry",  # rows from 2026-09-11 and 2026-09-12, when there were notes
-    "memories": "memory",  # rows from before 2026-09-11
-    "events": "event",
-    "todos": "todo",
-    "commitments": "commitment",  # rows from before 2026-09-12
-    "dreams": "dream",
-    "notes": "notes",  # the one page, from 2026-09-13; `journal` above is the old log
-    "reminders": "reminder",
-}
-
-
-def llm_result_lines(raw: str) -> list[str]:
-    """`messages.llm_result` as short lines: model and tokens, each op, each applied result."""
-    d = json.loads(raw)
-    if "error" in d:
-        return [f"error: {d['error']}"]
-    lines: list[str] = []
-    usage = d.get("usage") or {}
-    if usage:
-        line = f"{d.get('model')}: {usage.get('input_tokens')} in, {usage.get('output_tokens')} out"
-        if cached := usage.get("cache_read_input_tokens"):
-            line += f", {cached} from cache"
-        lines.append(line)
-    output = d.get("output") or {}
-    for key, kind in _OP_KIND.items():
-        for op in output.get(key, []):
-            fields = ", ".join(f"{k}={v!r}" for k, v in op.items() if k != "op" and v is not None)
-            lines.append(f"{kind} {op.get('op')}: {fields}")
-    for a in d.get("applied", []):
-        flag = "ok" if a.get("ok") else "SKIPPED"
-        note = a.get("note") or ""
-        lines.append(f"[{flag}] {a.get('kind')} {a.get('op')} #{a.get('id')} {note}".rstrip())
-    return lines
 
 
 def files_next_to(db_path: Path) -> Path:

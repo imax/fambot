@@ -1,15 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Задачі{% endblock %}
 {% block body %}
-<h2>На сьогодні</h2>
+{# the two boards of each member, the viewer's own first: free text as kept in the chat #}
+{% for title, boards in [("На сьогодні", today), ("Не забути", remember)] %}
+<h2>{{ title }}</h2>
 <ul class="rows today">
-  {% for b in today %}
+  {% for b in boards %}
   <li>
     <span class="meta">{{ b.name }}{% if b.stale %} · оновлено {{ b.stale }}{% endif %}</span>
     {% if b.text %}<div class="text">{{ b.text }}</div>{% else %}<div class="empty">порожньо</div>{% endif %}
   </li>
   {% endfor %}
 </ul>
+{% endfor %}
 {# the calendar: a day is listed only when it has rows, except today: an empty day is always today #}
 {% for day in timeline.days %}
 <h2>{{ day.title }}</h2>

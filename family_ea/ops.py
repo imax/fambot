@@ -1,4 +1,4 @@
-"""Apply LLM operations to the database: items, events, todos, dreams, reminders, today
+"""Apply LLM operations to the database: items, events, todos, dreams, reminders, today, remember
 boards, the notes page.
 
 Invalid ops (unknown ids, closed items, bad dates, an event without a date, a reminder
@@ -32,6 +32,7 @@ KIND_UK = {
     "dream": "мрію",
     "reminder": "нагадування",
     "today": "список на сьогодні",
+    "remember": "список «Не забути»",
     "notes": "нотатки",
 }
 OP_UK = {
@@ -46,7 +47,7 @@ OP_UK = {
 
 @dataclass(frozen=True)
 class Applied:
-    kind: str  # 'item' | 'event' | 'todo' | 'dream' | 'reminder' | 'today' | 'notes'
+    kind: str  # 'item' | 'event' | 'todo' | 'dream' | 'reminder' | 'today' | 'remember' | 'notes'
     op: str
     id: int | None
     ok: bool
@@ -423,19 +424,25 @@ def apply_ops(
                 )
             )
 
-    for t in result.today:
-        member = author_id if not t.member else normalize_member(t.member, family)
-        if member is None:
-            applied.append(Applied("today", "set", None, False, f"unknown member {t.member!r}"))
-            continue
-        text = t.text.strip()
-        current = db.current_today_lists().get(member)
-        if (current.text if current else "") == text:
-            applied.append(Applied("today", "set", None, False, "unchanged"))
-            continue
-        tid = db.save_today_list(member, text, author_id)
-        note = "" if member == author_id else f"for {member}"
-        applied.append(Applied("today", "set", tid, True, note))
+    # The two boards of a member: the same shape, each replaced whole.
+    boards = (
+        ("today", result.today, db.current_today_lists, db.save_today_list),
+        ("remember", result.remember, db.current_remember_lists, db.save_remember_list),
+    )
+    for kind, board_ops, current_boards, save_board in boards:
+        for t in board_ops:
+            member = author_id if not t.member else normalize_member(t.member, family)
+            if member is None:
+                applied.append(Applied(kind, "set", None, False, f"unknown member {t.member!r}"))
+                continue
+            text = t.text.strip()
+            current = current_boards().get(member)
+            if (current.text if current else "") == text:
+                applied.append(Applied(kind, "set", None, False, "unchanged"))
+                continue
+            bid = save_board(member, text, author_id)
+            note = "" if member == author_id else f"for {member}"
+            applied.append(Applied(kind, "set", bid, True, note))
 
     for n in result.notes:
         text = n.text.replace("\r\n", "\n").strip()

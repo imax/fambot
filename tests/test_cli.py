@@ -25,7 +25,7 @@ LLM_RESULT = (
 
 OP_LINE = "todo create: text='Стоматолог', owner='anna', due='2000-01-01'"
 DREAM_LINE = "dream close: id=3, status='fulfilled'"
-NOTES_LINE = "notes None: text='## X'"
+NOTES_LINE = "notes set: text='## X'"  # the page and the boards have no `op`: always set
 
 
 def _bearer() -> dict[str, str]:

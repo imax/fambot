@@ -252,7 +252,7 @@ def test_web_home_boards_own_first(
     client = TestClient(build_web(_settings(), family, db))
 
     def head(page: str) -> str:
-        return page[page.index("<h2>На сьогодні</h2>") : page.index("<h2>Сьогодні")]
+        return page[page.index("<h2>На сьогодні</h2>") : page.index("<h2>Не забути</h2>")]
 
     boards = head(client.get("/", headers=_auth("anna")).text)
     assert boards.index("Анна") < boards.index("Олег")
@@ -260,6 +260,19 @@ def test_web_home_boards_own_first(
     assert boards.count("порожньо") == 1  # Олег has no board yet
     boards = head(client.get("/", headers=_auth()).text)
     assert boards.index("Олег") < boards.index("Анна")
+
+    # The second board, «Не забути», sits under the first and before the calendar.
+    db.save_remember_list("oleh", "Купити подарунок мамі.", "oleh")
+    home = client.get("/", headers=_auth("anna")).text
+    first, second, calendar = (
+        home.index("<h2>На сьогодні</h2>"),
+        home.index("<h2>Не забути</h2>"),
+        home.index("<h2>Сьогодні"),
+    )
+    assert first < second < calendar
+    remember = home[second:calendar]
+    assert remember.index("Анна") < remember.index("Олег")  # the viewer's own first
+    assert "Купити подарунок мамі." in remember and remember.count("порожньо") == 1
 
 
 def test_web_home_empty(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch) -> None:

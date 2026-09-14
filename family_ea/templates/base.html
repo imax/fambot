@@ -81,6 +81,18 @@
   .doc table { border-collapse: collapse; margin: .3rem 0 1rem; }
   .doc th, .doc td { text-align: left; vertical-align: top; padding: .25rem .8rem .25rem 0; border-bottom: 1px solid #f0f0f0; }
   .doc th { color: #555; font-weight: 600; }
+  .chat li { border: 0; padding: .4rem 0; }
+  .chat .bubble { display: inline-block; max-width: 85%; padding: .4rem .7rem; border-radius: .7rem; white-space: pre-line; }
+  .chat li.me { text-align: right; }
+  .chat li.me .bubble { background: #dcecff; text-align: left; }
+  .chat li.bot .bubble { background: #f0f0f0; }
+  .chat .meta { display: block; margin-left: 0; }
+  .chat pre { margin: .2rem 0 0; }
+  .chat li.me pre { margin-left: auto; max-width: 85%; text-align: left; }
+  form.send { display: flex; gap: .5rem; align-items: flex-end; flex-wrap: wrap; margin-top: 1rem; }
+  form.send textarea { flex: 1 1 14rem; min-height: 2.8rem; }
+  form.send button { margin-top: 0; }
+  form.send input[type=file] { font-size: .85rem; max-width: 12rem; }
 </style>
 </head>
 <body>
@@ -90,6 +102,7 @@
   <a href="/notes"{% if path.startswith('/notes') %} class="current"{% endif %}>Нотатки</a>
   <a href="/items"{% if path.startswith('/items') %} class="current"{% endif %}>Речі</a>
   <a href="/dreams"{% if path.startswith('/dreams') %} class="current"{% endif %}>Мрії</a>
+  {% if chat_enabled %}<a href="/chat"{% if path.startswith('/chat') %} class="current"{% endif %}>Чат</a>{% endif %}
   <details class="admin">
     <summary>Адмін</summary>
     <div>

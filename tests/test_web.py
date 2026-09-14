@@ -1,3 +1,4 @@
+import html
 import json
 import tempfile
 from datetime import UTC, datetime, time
@@ -301,3 +302,58 @@ def test_login_rejects_bad_links(db: Database, family: Family) -> None:
     good = sign("s", "link", "anna", LINK_TTL)
     r = client.get("/login", params={"t": good, "next": "//evil.example/"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/"
+
+
+def test_web_chat_only_with_a_pipeline(db: Database, family: Family) -> None:
+    """`/chat` is the pipeline from the browser, for the laptop: the web built without a
+    pipeline (production) has neither the page nor the tab."""
+    from family_ea.llm import LlmCall, LlmResult
+    from family_ea.pipeline import Pipeline
+
+    class FakeLlm:
+        async def run(self, context: str, image=None) -> LlmCall:
+            result = LlmResult.model_validate(
+                {"reply": "Записав", "remember": [{"text": "Купити подарунок мамі."}]}
+            )
+            return LlmCall(result, "fake-model", {"input_tokens": 3, "output_tokens": 1}, "req")
+
+    plain = TestClient(build_web(_settings(), family, db))
+    assert plain.get("/chat", headers=_auth()).status_code == 404
+    assert 'href="/chat"' not in plain.get("/", headers=_auth()).text
+
+    pipeline = Pipeline(db, family, FakeLlm(), KYIV, store=FileStore(_settings().files_dir))
+    client = TestClient(build_web(_settings(), family, db, pipeline=pipeline))
+    assert client.get("/chat").status_code == 401
+    page = client.get("/chat", headers=_auth()).text
+    assert 'href="/chat"' in page and "поки порожньо" in page
+
+    r = client.post(
+        "/chat",
+        data={"text": "не забути: подарунок мамі"},
+        headers=_auth(),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and r.headers["location"] == "/chat"
+    assert db.current_remember_lists()["oleh"].text == "Купити подарунок мамі."
+    page = html.unescape(client.get("/chat", headers=_auth()).text)
+    assert page.index("не забути: подарунок мамі") < page.index("Записав")
+    assert "remember set: text='Купити подарунок мамі.'" in page
+    assert "[ok] remember set #1" in page
+    assert "не забути" not in client.get("/chat", headers=_auth("anna")).text  # Anna's chat
+
+    # A photo goes with the message, as from Telegram; an empty form sends nothing.
+    files = {"photo": ("box.jpg", JPEG, "image/jpeg")}
+    r = client.post(
+        "/chat",
+        data={"text": "ось коробка"},
+        files=files,
+        headers=_auth(),
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    last = db.last_user_message("oleh")
+    assert last and last.photo_file_id == "web"
+    assert [a.message_id for a in db.list_attachments()] == [last.id]
+    before = len(db.list_messages())
+    client.post("/chat", data={"text": "  "}, headers=_auth())
+    assert len(db.list_messages()) == before

@@ -6,6 +6,11 @@ a member a link to `/login?t=…`; opening it sets a long-lived signed cookie. R
 todo, all through the db methods the LLM ops use: done («☐»), the text («✎») and the
 order of the undated ones (dragged), on the home page. Dreams (`/dreams`) and the notes
 page (`/notes`, the LLM's Markdown rendered, its source photos under it) are only read.
+
+`/chat` exists only when `build_web` gets a pipeline, which `python -m family_ea web` does
+on the laptop: a message typed there goes through the very pipeline the bot runs, as the
+logged-in member, and the page shows the reply and what was applied. Production runs
+without it; the bot is the chat there.
 """
 
 import json
@@ -18,7 +23,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
@@ -26,25 +31,28 @@ from markdown_it import MarkdownIt
 from .auth import SESSION_TTL, sign, verify
 from .config import Settings
 from .context import (
+    board_blocks,
     build_timeline,
     fmt_date,
     fmt_dt,
     fmt_due,
     fmt_event_when,
     search_notes,
-    today_blocks,
     word_pattern,
 )
 from .db import Attachment, Database, Item, Member
 from .family import Family
 from .files import FileStore, files_for, files_of_kind
 from .ical import event_ics, ics_filename, todo_ics
+from .llm import Image
+from .pipeline import Pipeline, llm_result_lines
 
 log = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 SESSION_COOKIE = "session"
 DONE_SHOWN = 10  # the «Зроблено» tail of the home page
+CHAT_SHOWN = 30  # the tail of the member's chat on /chat
 SHA256 = re.compile(r"[0-9a-f]{64}")
 # The notes page as the LLM writes it: headings, lists, tables; raw HTML stays text.
 MARKDOWN = MarkdownIt("commonmark", {"html": False}).enable("table")
@@ -59,10 +67,13 @@ class NotLoggedIn(Exception):
         self.status_code = status_code
 
 
-def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
+def build_web(
+    settings: Settings, family: Family, db: Database, pipeline: Pipeline | None = None
+) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     store = FileStore(settings.files_dir)
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    templates.env.globals["chat_enabled"] = pipeline is not None
     templates.env.filters["dt"] = lambda iso: fmt_dt(iso, settings.tz)
     templates.env.filters["date"] = fmt_date
     templates.env.filters["day"] = lambda iso: fmt_dt(iso, settings.tz)[:5]
@@ -72,6 +83,7 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
     templates.env.filters["pretty_json"] = lambda s: (
         json.dumps(json.loads(s), ensure_ascii=False, indent=2) if s else ""
     )
+    templates.env.filters["llm_lines"] = lambda s: llm_result_lines(s) if s else []
 
     def secret() -> str:
         if not settings.web_secret:
@@ -167,14 +179,14 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
         timeline = build_timeline(
             db.planned_events(), db.open_todos(), db.pending_reminders(), now, family
         )
-        boards = today_blocks(db.current_today_lists(), family, member.id, now)
         return templates.TemplateResponse(
             request,
             "index.html",
             {
                 "q": "",
                 "timeline": timeline,
-                "today": boards,
+                "today": board_blocks(db.current_today_lists(), family, member.id, now),
+                "remember": board_blocks(db.current_remember_lists(), family, member.id, now),
                 "done": db.recent_done_todos(DONE_SHOWN),
             },
         )
@@ -402,6 +414,41 @@ def build_web(settings: Settings, family: Family, db: Database) -> FastAPI:
         return templates.TemplateResponse(
             request, "messages.html", {"messages": db.list_messages(limit=200)}
         )
+
+    if pipeline is not None:
+
+        @app.get("/chat", response_class=HTMLResponse)
+        async def chat_page(
+            request: Request, member: Annotated[Member, Depends(authed)]
+        ) -> HTMLResponse:
+            """The tail of the member's chat, oldest first, what the LLM did under each
+            message, and a form to send the next one."""
+            mine = [m for m in db.list_messages(CHAT_SHOWN * 4) if m.chat_with == member.id]
+            return templates.TemplateResponse(
+                request,
+                "chat.html",
+                {"messages": list(reversed(mine[:CHAT_SHOWN])), "model": settings.llm_model},
+            )
+
+        @app.post("/chat")
+        async def chat_send(
+            member: Annotated[Member, Depends(authed)],
+            text: Annotated[str, Form()] = "",
+            photo: UploadFile | None = None,
+        ) -> RedirectResponse:
+            """One message through the pipeline as the logged-in member, a photo with it if
+            one was attached; then back to the page, which shows the reply."""
+            text = text.replace("\r\n", "\n").strip()
+            image = None
+            if photo is not None and photo.filename:
+                data = await photo.read()
+                if data:
+                    image = Image(data, photo.content_type or "image/jpeg")
+            if text or image is not None:
+                await pipeline.handle(
+                    member, text, photo=image, photo_file_id="web" if image else None
+                )
+            return RedirectResponse("/chat", status_code=303)
 
     @app.get("/backup.db", dependencies=[Depends(backup_only)])
     async def backup() -> Response:

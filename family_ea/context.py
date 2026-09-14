@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from .db import Database, Dream, Event, Item, Member, Message, Notes, Reminder, TodayList, Todo
+from .db import Board, Database, Dream, Event, Item, Member, Message, Notes, Reminder, Todo
 from .family import Family
 
 RECENT_WINDOW_DAYS = 2  # items changed this recently are in every LLM context; older: search
@@ -204,7 +204,7 @@ def reminder_line(r: Reminder, family: Family, tz: ZoneInfo) -> str:
     return f"[нагадування #{r.id}] {fmt_dt(r.at, tz)} {r.text} ({to})"
 
 
-# --- today boards -------------------------------------------------------------
+# --- boards: «на сьогодні» and «Не забути» ----------------------------------
 
 
 def stale_label(iso_utc: str, now: datetime) -> str:
@@ -216,7 +216,7 @@ def stale_label(iso_utc: str, now: datetime) -> str:
 
 
 @dataclass(frozen=True)
-class TodayBlock:
+class BoardBlock:
     """One member's board, ready to render; the web and the digest only lay it out."""
 
     member: str
@@ -225,20 +225,20 @@ class TodayBlock:
     stale: str  # '' when empty or changed today; 'вчора'; '09.09'
 
 
-def today_blocks(
-    lists: dict[str, TodayList], family: Family, viewer: str | None, now: datetime
-) -> list[TodayBlock]:
-    """Every member's board, the viewer's own first."""
+def board_blocks(
+    lists: dict[str, Board], family: Family, viewer: str | None, now: datetime
+) -> list[BoardBlock]:
+    """Every member's board (of one kind), the viewer's own first."""
     blocks = []
     for m in sorted(family.members, key=lambda m: m.id != viewer):
         board = lists.get(m.id)
         text = board.text.strip() if board else ""
         stale = stale_label(board.created_at, now) if board and text else ""
-        blocks.append(TodayBlock(m.id, m.name, text, stale))
+        blocks.append(BoardBlock(m.id, m.name, text, stale))
     return blocks
 
 
-def today_lines(blocks: list[TodayBlock], viewer: str) -> list[str]:
+def today_lines(blocks: list[BoardBlock], viewer: str) -> list[str]:
     """The digest's head: 'На сьогодні (твоє):' then the others', a line per line of text.
     Empty boards are skipped."""
     lines: list[str] = []
@@ -252,8 +252,9 @@ def today_lines(blocks: list[TodayBlock], viewer: str) -> list[str]:
     return lines
 
 
-def today_context_lines(lists: dict[str, TodayList], family: Family, tz: ZoneInfo) -> list[str]:
-    """For the LLM: every member's board with id, name and when it changed; text as kept."""
+def board_context_lines(lists: dict[str, Board], family: Family, tz: ZoneInfo) -> list[str]:
+    """For the LLM: every member's board (of one kind) with id, name and when it changed;
+    text as kept."""
     lines = []
     for m in family.members:
         board = lists.get(m.id)
@@ -657,7 +658,11 @@ def build_context(
         ),
         section(
             "Списки на сьогодні (today: дошка кожного, змінюється лише на явне прохання)",
-            today_context_lines(db.current_today_lists(), family, tz),
+            board_context_lines(db.current_today_lists(), family, tz),
+        ),
+        section(
+            "Не забути (remember: друга дошка кожного, без дня; змінюється лише на явне прохання)",
+            board_context_lines(db.current_remember_lists(), family, tz),
         ),
         section(
             f"Події (минулі за {PAST_EVENT_DAYS} днів і всі майбутні)",

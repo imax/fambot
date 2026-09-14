@@ -100,6 +100,14 @@ def test_today_lists_latest_per_member(db: Database) -> None:
         "oleh": ("планка, авто", "anna"),
         "anna": ("вода", "anna"),
     }
+    # The «Не забути» boards: the same shape in their own table, apart from the today ones.
+    assert db.current_remember_lists() == {}
+    db.save_remember_list("oleh", "подарунок мамі", "oleh")
+    db.save_remember_list("oleh", "подарунок мамі, насіння", "oleh")
+    assert {m: b.text for m, b in db.current_remember_lists().items()} == {
+        "oleh": "подарунок мамі, насіння"
+    }
+    assert {m: b.text for m, b in db.current_today_lists().items()}["oleh"] == "планка, авто"
 
 
 def test_todo_lifecycle(db: Database) -> None:

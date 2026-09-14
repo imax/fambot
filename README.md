@@ -56,7 +56,7 @@ volume for the database and the photos.
 uv sync
 cp .env.example .env          # fill in tokens and ADMIN_USER_ID
 uv run python -m family_ea    # bot + web on :8080 (never with the production token while it runs there)
-make web                      # the web alone on the local db, no bot; prints a login link
+make web                      # the web alone on the local db, no bot; prints a login link; a «Чат» tab runs the pipeline from the browser
 make local                    # pull production and make it the local db + files, to look at real data
 uv run python -m family_ea chat --as oleh --name Олег   # the pipeline as a REPL, no Telegram
 make test                     # deterministic tests, the LLM is faked

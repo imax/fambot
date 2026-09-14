@@ -23,11 +23,11 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 from .auth import LINK_TTL, sign
 from .config import Settings
 from .context import (
+    board_blocks,
     bucket_todos,
     build_agenda,
     digest_text,
     parse_iso,
-    today_blocks,
     today_lines,
 )
 from .db import Database, Member, Reminder
@@ -198,7 +198,7 @@ def build_bot(
         """The digest for one member, their own board first; None when there is nothing to say."""
         agenda = build_agenda(db.planned_events(), now)
         buckets = bucket_todos(db.open_todos(), now)
-        boards = today_blocks(db.current_today_lists(), family, viewer.id, now)
+        boards = board_blocks(db.current_today_lists(), family, viewer.id, now)
         head = today_lines(boards, viewer.id)
         text = digest_text(agenda, buckets, family, settings.tz, today=head)
         return _clip(text) if text else None

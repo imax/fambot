@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Чат{% endblock %}
+{% block body %}
+<h2>Чат <span class="meta">· локально, без Telegram · {{ model }}</span></h2>
+<ul class="chat">
+  {% for m in messages %}
+  <li class="{% if m.user_id == 'bot' %}bot{% else %}me{% endif %}">
+    <span class="meta">{{ m.created_at | dt }} · {% if m.user_id == 'bot' %}бот{% else %}{{ m.user_id | person }}{% endif %}{% if m.is_voice %} · 🎙{% endif %}{% if m.photo_file_id %} · 📷{% endif %}</span>
+    <span class="bubble">{{ m.raw_text }}</span>
+    {% set lines = m.llm_result | llm_lines %}
+    {% if lines %}<pre>{{ lines | join("\n") }}</pre>{% endif %}
+  </li>
+  {% else %}<li class="empty">поки порожньо</li>{% endfor %}
+</ul>
+<form class="send" method="post" action="/chat" enctype="multipart/form-data">
+  <textarea name="text" placeholder="повідомлення боту" autofocus></textarea>
+  <input type="file" name="photo" accept="image/*">
+  <button type="submit">Надіслати</button>
+</form>
+<script>
+  // Enter sends, Shift+Enter is a new line; the page scrolls to the last message.
+  (function () {
+    var form = document.querySelector('form.send'), box = form.querySelector('textarea');
+    box.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+    });
+    form.addEventListener('submit', function () { form.querySelector('button').disabled = true; });
+    box.scrollIntoView();
+  })();
+</script>
+{% endblock %}

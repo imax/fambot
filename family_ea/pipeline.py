@@ -1,4 +1,7 @@
-"""One message end to end: store -> context -> LLM -> apply ops -> reply. Spec section 5."""
+"""One message end to end: store -> context -> LLM -> apply ops -> reply. Spec section 5.
+
+`llm_result_lines` reads back what `handle` stored in `messages.llm_result`, for `log`
+and the local chat page."""
 
 from __future__ import annotations
 
@@ -113,3 +116,42 @@ class Pipeline:
             reply = f"{reply}\n\n{warning}"
         bot_message_id = self.db.insert_message("bot", author.id, reply)
         return Outcome(message_id, bot_message_id, reply, call.result, applied)
+
+
+_OP_KIND = {
+    "items": "item",
+    "journal": "entry",  # rows from 2026-09-11 and 2026-09-12, when there were notes
+    "memories": "memory",  # rows from before 2026-09-11
+    "events": "event",
+    "todos": "todo",
+    "commitments": "commitment",  # rows from before 2026-09-12
+    "dreams": "dream",
+    "notes": "notes",  # the one page, from 2026-09-13; `journal` above is the old log
+    "today": "today",
+    "remember": "remember",
+    "reminders": "reminder",
+}
+
+
+def llm_result_lines(raw: str) -> list[str]:
+    """`messages.llm_result` as short lines: model and tokens, each op, each applied result."""
+    d = json.loads(raw)
+    if "error" in d:
+        return [f"error: {d['error']}"]
+    lines: list[str] = []
+    usage = d.get("usage") or {}
+    if usage:
+        line = f"{d.get('model')}: {usage.get('input_tokens')} in, {usage.get('output_tokens')} out"
+        if cached := usage.get("cache_read_input_tokens"):
+            line += f", {cached} from cache"
+        lines.append(line)
+    output = d.get("output") or {}
+    for key, kind in _OP_KIND.items():
+        for op in output.get(key, []):
+            fields = ", ".join(f"{k}={v!r}" for k, v in op.items() if k != "op" and v is not None)
+            lines.append(f"{kind} {op.get('op', 'set')}: {fields}")  # boards, notes: no op
+    for a in d.get("applied", []):
+        flag = "ok" if a.get("ok") else "SKIPPED"
+        note = a.get("note") or ""
+        lines.append(f"[{flag}] {a.get('kind')} {a.get('op')} #{a.get('id')} {note}".rstrip())
+    return lines
