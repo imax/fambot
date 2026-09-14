@@ -81,9 +81,14 @@
   .doc table { border-collapse: collapse; margin: .3rem 0 1rem; }
   .doc th, .doc td { text-align: left; vertical-align: top; padding: .25rem .8rem .25rem 0; border-bottom: 1px solid #f0f0f0; }
   .doc th { color: #555; font-weight: 600; }
-  h2 form.move { display: inline; margin-left: .3rem; font-weight: normal; }
-  h2 form.move button { margin: 0; padding: 0 .35rem; border: 0; background: none; color: #aaa; font-size: 1rem;
-                        line-height: 1; cursor: pointer; -webkit-appearance: none; appearance: none; }
+  h2 .grip { font-weight: normal; font-size: 1rem; padding: 0 .4rem; vertical-align: middle; }
+  /* With a mouse, the row tools and the project handle show up on hover (or when dragged);
+     on a touch screen there is no hover, so they stay in view. */
+  @media (hover: hover) and (pointer: fine) {
+    li.todo .tools, h2 .grip { opacity: 0; transition: opacity .1s; }
+    li.todo:hover .tools, li.todo .tools:focus-within, li.dragging .tools,
+    h2:hover .grip, section.dragging h2 .grip { opacity: 1; }
+  }
   .chat li { border: 0; padding: .4rem 0; }
   .chat .bubble { display: inline-block; max-width: 85%; padding: .4rem .7rem; border-radius: .7rem; white-space: pre-line; }
   .chat li.me { text-align: right; }

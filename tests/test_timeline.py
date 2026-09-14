@@ -316,8 +316,9 @@ def test_web_home_groups_undated_todos_by_project(
     assert lists.index("Свердловина") < lists.index("Інструкція")  # newest first, unplaced
     assert lists.index("<h2>Авто") < lists.index("XC90") < lists.index("<h2>Документи")
     assert lists.index("<h2>Інше</h2>") < lists.index("Окрема")
-    # Every list is a drop target, with a placeholder shown only while it is empty.
-    assert lists.count('class="rows sortable"') == 4 and lists.count('class="grip"') == 4
+    # Every list is a drop target, with a placeholder shown only while it is empty; a «⋮⋮»
+    # on each of the 4 rows and on the 3 project headings.
+    assert lists.count('class="rows sortable"') == 4 and lists.count('class="grip"') == 7
     assert lists.count('<li class="empty">нічого') == 1  # Документи
     assert lists.count('<li class="empty" hidden>нічого') == 3
     assert f'data-project="{car}"' in lists and 'data-project=""' in lists
@@ -340,21 +341,17 @@ def test_web_home_groups_undated_todos_by_project(
     rest = page[page.index("<h2>Інше</h2>") : page.index("<script>")]
     assert "XC90" in rest and "Окрема" in rest
 
-    # «↑» «↓» on the headings: the first has only «↓», the last only «↑»; a post reorders.
+    # A «⋮⋮» on every project heading, none on «Інше»; the dragged order is posted whole.
     lists = page[page.index("<h2>Калинівка") : page.index("<script>")]
-    home_head = lists[lists.index("<h2>Калинівка") : lists.index("<h2>Авто")]
-    assert 'value="1"' in home_head and 'value="-1"' not in home_head
-    docs_head = lists[lists.index("<h2>Документи") : lists.index("<h2>Інше")]
-    assert 'value="-1"' in docs_head and 'value="1"' not in docs_head
-    assert "form" not in lists[lists.index("<h2>Інше") :].split("</h2>")[0]
-    r = client.post(
-        f"/projects/{car}/move", data={"step": "-1"}, headers=_auth(), follow_redirects=False
-    )
-    assert r.status_code == 303 and r.headers["location"] == "/"
+    handle = '<span class="grip" title="Потягни, щоб переставити проєкт">'
+    for name in ("Калинівка", "Авто", "Документи"):
+        assert f"<h2>{name}{handle}" in lists
+    assert "grip" not in lists[lists.index("<h2>Інше") :].split("</h2>")[0]
+    assert f'<section class="project" data-project="{car}">' in lists
+    r = client.post("/projects/order", data={"ids": [car, home, empty]}, headers=_auth())
+    assert r.status_code == 204
     assert [p.id for p in db.open_projects()] == [car, home, empty]
-    move = f"/projects/{car}/move"
-    assert client.post(move, data={"step": "-1"}, headers=_auth()).status_code == 404  # first
-    assert client.post(move, data={"step": "2"}, headers=_auth()).status_code == 400
+    assert client.post("/projects/order", data={"ids": [car]}).status_code == 401
     page = client.get("/", headers=_auth()).text
     assert page.index("<h2>Авто") < page.index("<h2>Калинівка")
 
@@ -364,8 +361,8 @@ def test_web_home_groups_undated_todos_by_project(
     rest = page[page.index("<h2>Інше</h2>") :]
     assert "Інструкція" in rest  # detached
 
-    # Without any project the list is plain, as before: one «Інше», no arrows.
+    # Without any project the list is plain, as before: one «Інше», no project handle.
     for p in db.open_projects():
         db.close_project(p.id)
     page = client.get("/", headers=_auth()).text
-    assert page.count("<h2>Інше</h2>") == 1 and 'form class="move"' not in page
+    assert page.count("<h2>Інше</h2>") == 1 and handle not in page

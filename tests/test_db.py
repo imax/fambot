@@ -92,16 +92,14 @@ def test_projects_are_ordered_by_hand(db: Database) -> None:
     a = db.create_project("A", created_by="oleh")
     b = db.create_project("B", created_by="oleh")
     c = db.create_project("C", created_by="oleh")
-    assert [p.id for p in db.open_projects()] == [a, b, c]  # as made, until someone moves one
-    assert db.move_project(c, -1) and [p.id for p in db.open_projects()] == [a, c, b]
-    assert db.move_project(a, -1) is False  # already first
-    assert db.move_project(b, 1) is False  # already last
-    assert db.move_project(a, 1) and [p.id for p in db.open_projects()] == [c, a, b]
+    assert [p.id for p in db.open_projects()] == [a, b, c]  # as made, until someone drags one
+    db.reorder_projects([c, a, b])
+    assert [p.id for p in db.open_projects()] == [c, a, b]
     d = db.create_project("D", created_by="oleh")  # unplaced: after the placed ones
     assert [p.id for p in db.open_projects()] == [c, a, b, d]
     db.close_project(a)
-    assert db.move_project(a, 1) is False and db.move_project(999, 1) is False
-    assert [p.id for p in db.open_projects()] == [c, b, d]
+    db.reorder_projects([d, a, 999, c])  # a closed one and an unknown id are ignored
+    assert [p.id for p in db.open_projects()] == [d, b, c]  # b kept its position
 
 
 def test_old_todos_get_the_project_column(tmp_path: Path) -> None:

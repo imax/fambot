@@ -33,24 +33,26 @@
   {% for r in timeline.dated %}{% include "_row.html" %}{% endfor %}
 </ul>
 {% endif %}
-{# the undated todos: a list per project (an h2 like the rest; «↑» «↓» set the projects'
-   order), then «Інше», the default project: the ones without one. A row is dragged by «⋮⋮»
-   within its list or into another one, which moves the todo into that project #}
+{# the undated todos: a section per project (an h2 like the rest, dragged by the «⋮⋮» next
+   to the name when there is more than one project), then «Інше», the default project: the
+   ones without one. A row is dragged by its «⋮⋮» within its list or into another one,
+   which moves the todo into that project #}
 {% set projects = timeline.undated | length > 1 %}
 {% set sortable = projects or timeline.undated[0].rows | length > 1 %}
+{% set movable = timeline.undated | length > 2 %}
 {% for g in timeline.undated %}
 {% if g.name %}
-<h2>{{ g.name }}
-  <form class="move" method="post" action="/projects/{{ g.project_id }}/move">
-    {% if not g.first %}<button name="step" value="-1" title="Вище">↑</button>{% endif %}
-    {% if not g.last %}<button name="step" value="1" title="Нижче">↓</button>{% endif %}
-  </form>
-</h2>
-{% else %}<h2>Інше</h2>{% endif %}
+<section class="project" data-project="{{ g.project_id }}">
+<h2>{{ g.name }}{% if movable %}<span class="grip" title="Потягни, щоб переставити проєкт">⋮⋮</span>{% endif %}</h2>
+{% else %}
+<section>
+<h2>Інше</h2>
+{% endif %}
 <ul class="rows{% if sortable %} sortable{% endif %}" data-project="{{ g.project_id or '' }}">
   {% for r in g.rows %}{% include "_row.html" %}{% endfor %}
   <li class="empty"{% if g.rows %} hidden{% endif %}>нічого</li>
 </ul>
+</section>
 {% endfor %}
 {% if done %}
 <h2>Зроблено</h2>
@@ -167,7 +169,7 @@
 // moves the todo there. The body holds the pointer capture: the row is re-inserted while
 // dragging, and it may change lists.
 (() => {
-  const lists = Array.from(document.querySelectorAll("ul.sortable"));
+  let lists = []; // in page order, read when a drag starts: a project drag reorders them
   const rows = (list) => Array.from(list.querySelectorAll("li[data-id]"));
   const state = (list) => list.dataset.project + ":" + rows(list).map((li) => li.dataset.id).join();
   const refresh = (list) => { list.querySelector("li.empty").hidden = rows(list).length > 0; };
@@ -179,6 +181,7 @@
     if (!grip || e.button) return;
     e.preventDefault();
     document.body.setPointerCapture(e.pointerId);
+    lists = Array.from(document.querySelectorAll("ul.sortable"));
     item = grip.closest("li");
     from = item.parentElement;
     before = state(from);
@@ -215,6 +218,53 @@
     body.append("project", list.dataset.project);
     rows(list).forEach((li) => body.append("ids", li.dataset.id));
     fetch("/todos/order", { method: "POST", body }).then(
+      (r) => { if (!r.ok) location.reload(); },
+      () => location.reload(),
+    );
+  };
+  document.addEventListener("pointerup", drop);
+  document.addEventListener("pointercancel", drop);
+})();
+</script>
+{% endif %}
+{% if movable %}
+<script>
+// A project dragged by the «⋮⋮» next to its name moves whole (heading and list) among the
+// projects; «Інше» stays last. On release the new order is posted, for everyone.
+(() => {
+  const all = () => Array.from(document.querySelectorAll("section.project"));
+  const order = () => all().map((s) => s.dataset.project).join();
+  let item = null;
+  let before = "";
+  document.addEventListener("pointerdown", (e) => {
+    const grip = e.target.closest("section.project > h2 > .grip");
+    if (!grip || e.button) return;
+    e.preventDefault();
+    document.body.setPointerCapture(e.pointerId);
+    item = grip.closest("section");
+    before = order();
+    item.classList.add("dragging");
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!item) return;
+    if (e.clientY < 60) scrollBy(0, -12);
+    else if (e.clientY > innerHeight - 60) scrollBy(0, 12);
+    const others = all().filter((s) => s !== item);
+    const next = others.find((s) => {
+      const box = s.getBoundingClientRect();
+      return e.clientY < box.top + box.height / 2;
+    });
+    if (next) next.before(item);
+    else others[others.length - 1].after(item);
+  });
+  const drop = () => {
+    if (!item) return;
+    item.classList.remove("dragging");
+    item = null;
+    if (order() === before) return;
+    const body = new URLSearchParams();
+    all().forEach((s) => body.append("ids", s.dataset.project));
+    fetch("/projects/order", { method: "POST", body }).then(
       (r) => { if (!r.ok) location.reload(); },
       () => location.reload(),
     );

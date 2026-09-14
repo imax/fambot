@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS projects (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,               -- «Калинівка», «Авто»: a group of todos, nothing more
   status TEXT NOT NULL,             -- 'open' | 'closed'
-  position INTEGER,                 -- hand-set order on the web («↑» «↓»); NULL = after them, by id
+  position INTEGER,                 -- hand-set order on the web (dragged); NULL = after them, by id
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
   closed_at TEXT
@@ -256,7 +256,7 @@ class Project:
     created_by: str
     created_at: str
     closed_at: str | None
-    position: int | None = None  # «↑» «↓» on the home page; None = after the placed ones
+    position: int | None = None  # dragged on the home page; None = after the placed ones
 
     @property
     def is_open(self) -> bool:
@@ -1112,30 +1112,21 @@ class Database:
         return _project(row) if row else None
 
     def open_projects(self) -> list[Project]:
-        """In the family's order: the ones placed with «↑» «↓» on the web first, then the
+        """In the family's order: the ones placed by dragging on the web first, then the
         rest as they were made. The home page and the LLM context list them so."""
         rows = self.conn.execute(
             "SELECT * FROM projects WHERE status = 'open' ORDER BY position IS NULL, position, id"
         ).fetchall()
         return [_project(r) for r in rows]
 
-    def move_project(self, project_id: int, step: int) -> bool:
-        """«↑» (step -1) or «↓» (+1) on the home page: swap with the neighbour in the current
-        order, then write every open project's position. Returns False when there is no
-        such open project or it is already at that end."""
-        order = [p.id for p in self.open_projects()]
-        if project_id not in order:
-            return False
-        i = order.index(project_id)
-        j = i + step
-        if j < 0 or j >= len(order):
-            return False
-        order[i], order[j] = order[j], order[i]
+    def reorder_projects(self, ids: list[int]) -> None:
+        """The projects as someone dragged them on the home page: `ids` in this order. Ids
+        that are not open projects are ignored; an open one left out keeps its position."""
         self.conn.executemany(
-            "UPDATE projects SET position = ? WHERE id = ?", list(enumerate(order, start=1))
+            "UPDATE projects SET position = ? WHERE id = ? AND status = 'open'",
+            [(n, pid) for n, pid in enumerate(ids, start=1)],
         )
         self.conn.commit()
-        return True
 
     def open_project_by_name(self, name: str) -> Project | None:
         """The open project called so, letter case aside (Ukrainian included)."""

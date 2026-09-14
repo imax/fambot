@@ -371,15 +371,13 @@ def build_web(
         db.reorder_todos(ids)
         return Response(status_code=204)
 
-    @app.post("/projects/{pid:int}/move", dependencies=[Depends(authed)])
-    async def project_move(pid: int, step: Annotated[int, Form()] = 0) -> RedirectResponse:
-        """«↑» or «↓» on a project heading of the home page: one step in the order of the
-        projects, saved for everyone. Nothing else about a project is done on the web."""
-        if step not in (-1, 1):
-            raise HTTPException(status_code=400, detail="step must be -1 or 1")
-        if not db.move_project(pid, step):
-            raise HTTPException(status_code=404, detail="no such open project, or at the end")
-        return RedirectResponse("/", status_code=303)
+    @app.post("/projects/order", dependencies=[Depends(authed)])
+    async def projects_order(ids: Annotated[list[int], Form()]) -> Response:
+        """The project headings of the home page after a drag by «⋮⋮»: every project's id
+        in its new place, saved for everyone. Nothing else about a project is done on the
+        web."""
+        db.reorder_projects(ids)
+        return Response(status_code=204)
 
     @app.get("/facts", response_class=HTMLResponse, dependencies=[Depends(authed)])
     async def facts_page(request: Request) -> HTMLResponse:

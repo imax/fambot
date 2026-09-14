@@ -81,7 +81,7 @@ family_ea/
                 /family, GET /messages, GET /events/:id.ics, GET /todos/:id.ics,
                 POST /todos/:id/done and /todos/:id/text (a tap on the home
                 page), POST /todos/order (the undated list after a drag), POST
-                /projects/:id/move («↑» «↓» on the home page), GET /backup.db
+                /projects/order (the project headings after a drag), GET /backup.db
                 (bearer token); GET/POST /chat only when built with a pipeline (`web`
                 on the laptop): the pipeline from the browser, never in production
   main.py       serve() runs bot + uvicorn in one loop; chat() REPL; pull(); backup(); show_log()
@@ -120,9 +120,11 @@ tests/          deterministic; the LLM is faked, nothing hits the network
 - **A project is a name that groups todos, nothing more** (2026-09-14, when 18 undated
   todos in one column stopped being readable). `projects` (name, open/closed) and
   `todos.project_id`; no dates, owner, text or events on a project. The LLM creates,
-  renames and closes one only on an explicit ask, and files a todo into one only when the
-  person names it (`TodoOp.project`, an id or a name from the context, `-` clears); a name
-  that matches no open project fails the op (`ops.OpError`), it never guesses or creates.
+  renames and closes one only on an explicit ask, and files a todo into the one the
+  person names, or, for a new todo with none named, into the existing one it plainly
+  belongs to by content, saying so in the reply (2026-09-14, evening; before that only a
+  named one), else none (`TodoOp.project`, an id or a name from the context, `-` clears);
+  a name that matches no open project fails the op (`ops.OpError`), it never creates one.
   Moving existing todos in is `ProjectOp.todos` (ids) on the same create/update op: the
   first prompt asked for a todo update per moved todo and the model created the project,
   emitted none and said «переніс» (2026-09-14, in production). The web shows the undated
@@ -130,8 +132,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   not a project row, «в Інше» in the chat is `project: "-"`), a row
   dragged within its list or into another one, which moves the todo (`POST /todos/order`
   with `project`, through `db.update_todo`). The order of the projects is set on the web
-  («↑» «↓» on the heading, `projects.position`, `db.move_project`), the one thing about a
-  project the web writes. Closing a project detaches its open todos. The digest does not
+  (a drag by the «⋮⋮» next to the name, `projects.position`, `db.reorder_projects`), the
+  one thing about a project the web writes. With a mouse the «⋮⋮» and «✎» show on hover
+  only; on a touch screen they stay in view (2026-09-14, evening). Closing a project detaches its open todos. The digest does not
   mention projects.
 - **A dream is a shared list entry with an author, not a todo without a date.** `dreams`
   (2026-09-13): text, who dreamt it up (`created_by`, shown to both), open / fulfilled /
