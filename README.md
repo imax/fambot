@@ -1,6 +1,6 @@
 # Family EA
 
-A private executive assistant for one family, living in Telegram.
+A private executive assistant for a family.
 
 Two people throw context at the bot during the day: text, voice or a photo with a
 caption, in natural language, without deciding whether it is a task, an event or a thing.
