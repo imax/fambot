@@ -357,6 +357,13 @@ def apply_ops(
 
     # Projects before todos: «новий проєкт Авто, в нього: XC90» names the project in the
     # todo op of the same message, by name.
+    def move_todos(ids: list[int], pid: int) -> None:
+        """`todos` of a project op: each one an update of that todo, said so in the log."""
+        for tid in ids:
+            ok = db.update_todo(tid, project_id=pid)
+            note = f"-> project #{pid}" if ok else "not found or not open"
+            applied.append(Applied("todo", "update", tid, ok, note))
+
     for pr in result.projects:
         name = _text(pr.name)
         if pr.op == "create":
@@ -370,16 +377,21 @@ def apply_ops(
                 continue
             pid = db.create_project(name, created_by=author_id)
             applied.append(Applied("project", "create", pid, True))
+            move_todos(pr.todos, pid)
         elif pr.op == "update":
-            if not pr.id or name is None:
+            current = db.get_project(pr.id) if pr.id else None
+            if current is None or not current.is_open:
                 applied.append(
-                    Applied("project", "update", pr.id or None, False, "nothing to update")
+                    Applied("project", "update", pr.id or None, False, "not found or not open")
                 )
                 continue
-            ok = db.rename_project(pr.id, name)
-            applied.append(
-                Applied("project", "update", pr.id, ok, "" if ok else "not found or not open")
-            )
+            if name is None and not pr.todos:
+                applied.append(Applied("project", "update", pr.id, False, "nothing to update"))
+                continue
+            if name is not None:
+                db.rename_project(pr.id, name)
+            applied.append(Applied("project", "update", pr.id, True))
+            move_todos(pr.todos, pr.id)
         elif pr.op == "close":
             ok = bool(pr.id) and db.close_project(pr.id)
             note = "" if ok else "not found or not open"

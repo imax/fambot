@@ -436,3 +436,46 @@ def test_project_ops_and_todos_in_projects(db: Database, family: Family) -> None
     applied = run({"projects": [{"op": "close", "id": 1}, {"op": "close", "id": 1}]})
     assert [(a.ok, a.note) for a in applied] == [(True, ""), (False, "not found or not open")]
     assert db.open_projects() == [] and db.get_todo(2).project_id is None
+
+
+def test_project_op_moves_todos_in(db: Database, family: Family) -> None:
+    """«додай проєкт X і перенеси туди A і B» is one op: `todos` on the project op, each
+    one an update of that todo in the log."""
+    mid = db.insert_message("oleh", "oleh", "...")
+    for text in ("A", "B", "C"):
+        db.create_todo(text, owner=None, created_by="oleh", source_message_id=mid)
+    db.close_todo(3, "done")
+
+    def run(payload: dict) -> list:
+        result = LlmResult.model_validate({"reply": "Ок.", **payload})
+        return apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+
+    applied = run({"projects": [{"op": "create", "name": "Зима", "todos": [1, 3, 99]}]})
+    assert [(a.kind, a.op, a.id, a.ok, a.note) for a in applied] == [
+        ("project", "create", 1, True, ""),
+        ("todo", "update", 1, True, "-> project #1"),
+        ("todo", "update", 3, False, "not found or not open"),
+        ("todo", "update", 99, False, "not found or not open"),
+    ]
+    assert db.get_todo(1).project_id == 1 and db.get_todo(2).project_id is None
+
+    # An existing project: update with todos alone moves, name alone renames, both do both.
+    applied = run(
+        {
+            "projects": [
+                {"op": "update", "id": 1, "todos": [2]},
+                {"op": "update", "id": 1, "name": "Зима 2026", "todos": [1]},
+                {"op": "update", "id": 1},
+                {"op": "update", "id": 7, "todos": [2]},
+            ]
+        }
+    )
+    assert [(a.kind, a.op, a.id, a.ok, a.note) for a in applied] == [
+        ("project", "update", 1, True, ""),
+        ("todo", "update", 2, True, "-> project #1"),
+        ("project", "update", 1, True, ""),
+        ("todo", "update", 1, True, "-> project #1"),
+        ("project", "update", 1, False, "nothing to update"),
+        ("project", "update", 7, False, "not found or not open"),
+    ]
+    assert db.get_project(1).name == "Зима 2026" and db.get_todo(2).project_id == 1

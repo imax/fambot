@@ -33,27 +33,25 @@
   {% for r in timeline.dated %}{% include "_row.html" %}{% endfor %}
 </ul>
 {% endif %}
-<h2>Без дати</h2>
-{# a list per project (h3), the ones without a project last; one plain list without projects.
-   Two or more rows: a «⋮⋮» handle on each; drag to set the order, it is saved for everyone #}
-{% set ns = namespace(sortable=false) %}
+{# the undated todos: a list per project (an h2 like the rest; «↑» «↓» set the projects'
+   order), then «Без дати» for the ones without a project, the default. A row is dragged by
+   «⋮⋮» within its list or into another one, which moves the todo into that project #}
+{% set projects = timeline.undated | length > 1 %}
+{% set sortable = projects or timeline.undated[0].rows | length > 1 %}
 {% for g in timeline.undated %}
 {% if g.name %}
-<h3>{{ g.name }}
-  {# «↑» «↓» reorder the projects, for everyone; a project at an end has one arrow #}
+<h2>{{ g.name }}
   <form class="move" method="post" action="/projects/{{ g.project_id }}/move">
     {% if not g.first %}<button name="step" value="-1" title="Вище">↑</button>{% endif %}
     {% if not g.last %}<button name="step" value="1" title="Нижче">↓</button>{% endif %}
   </form>
-</h3>
-{% elif timeline.undated | length > 1 %}<h3>Без проєкту</h3>{% endif %}
-{% set sortable = g.rows | length > 1 %}
-{% if sortable %}{% set ns.sortable = true %}{% endif %}
-<ul class="rows{% if sortable %} sortable{% endif %}">
-  {% for r in g.rows %}{% include "_row.html" %}{% else %}<li class="empty">нічого</li>{% endfor %}
+</h2>
+{% else %}<h2>Без дати</h2>{% endif %}
+<ul class="rows{% if sortable %} sortable{% endif %}" data-project="{{ g.project_id or '' }}">
+  {% for r in g.rows %}{% include "_row.html" %}{% endfor %}
+  <li class="empty"{% if g.rows %} hidden{% endif %}>нічого</li>
 </ul>
 {% endfor %}
-{% set sortable = ns.sortable %}
 {% if done %}
 <h2>Зроблено</h2>
 <ul class="rows done">
@@ -163,53 +161,67 @@
 </script>
 {% if sortable %}
 <script>
-// Drag by the handle (pointer events: mouse and touch alike). The row moves in the list as
-// the pointer passes the middle of a neighbour; on release the new order is posted. The
-// list, not the row, holds the pointer capture: the row is re-inserted while dragging.
-// Each project's list is its own; a row does not leave its list (that is the chat's job).
-document.querySelectorAll("ul.sortable").forEach((list) => {
-  const order = () => Array.from(list.children, (li) => li.dataset.id);
+// Drag by the handle (pointer events: mouse and touch alike). The row moves as the pointer
+// passes the middle of a neighbour, in its own list or in another one (a project's, or
+// «Без дати»); on release the list it landed in posts its order and its project, which
+// moves the todo there. The body holds the pointer capture: the row is re-inserted while
+// dragging, and it may change lists.
+(() => {
+  const lists = Array.from(document.querySelectorAll("ul.sortable"));
+  const rows = (list) => Array.from(list.querySelectorAll("li[data-id]"));
+  const state = (list) => list.dataset.project + ":" + rows(list).map((li) => li.dataset.id).join();
+  const refresh = (list) => { list.querySelector("li.empty").hidden = rows(list).length > 0; };
   let item = null;
-  let before = [];
-  list.addEventListener("pointerdown", (e) => {
-    const grip = e.target.closest(".grip");
+  let from = null;
+  let before = "";
+  document.addEventListener("pointerdown", (e) => {
+    const grip = e.target.closest("ul.sortable .grip");
     if (!grip || e.button) return;
     e.preventDefault();
-    list.setPointerCapture(e.pointerId);
+    document.body.setPointerCapture(e.pointerId);
     item = grip.closest("li");
+    from = item.parentElement;
+    before = state(from);
     item.classList.add("dragging");
-    before = order();
   });
-  list.addEventListener("pointermove", (e) => {
+  document.addEventListener("pointermove", (e) => {
     if (!item) return;
     if (e.clientY < 60) scrollBy(0, -12);
     else if (e.clientY > innerHeight - 60) scrollBy(0, 12);
-    for (const other of list.children) {
+    // The lists are stacked: the target is the first one whose bottom is below the pointer.
+    const target = lists.find((l) => e.clientY < l.getBoundingClientRect().bottom) || lists[lists.length - 1];
+    const source = item.parentElement;
+    let placed = false;
+    for (const other of rows(target)) {
       if (other === item) continue;
       const box = other.getBoundingClientRect();
       if (e.clientY < box.top + box.height / 2) {
-        list.insertBefore(item, other);
-        return;
+        target.insertBefore(item, other);
+        placed = true;
+        break;
       }
     }
-    list.appendChild(item);
+    if (!placed) target.insertBefore(item, target.querySelector("li.empty"));
+    if (source !== target) { refresh(source); refresh(target); }
   });
   const drop = () => {
     if (!item) return;
+    const list = item.parentElement;
     item.classList.remove("dragging");
     item = null;
-    const ids = order();
-    if (ids.join() === before.join()) return;
+    const after = state(list);
+    if (list === from && after === before) return;
     const body = new URLSearchParams();
-    ids.forEach((id) => body.append("ids", id));
+    body.append("project", list.dataset.project);
+    rows(list).forEach((li) => body.append("ids", li.dataset.id));
     fetch("/todos/order", { method: "POST", body }).then(
       (r) => { if (!r.ok) location.reload(); },
       () => location.reload(),
     );
   };
-  list.addEventListener("pointerup", drop);
-  list.addEventListener("pointercancel", drop);
-});
+  document.addEventListener("pointerup", drop);
+  document.addEventListener("pointercancel", drop);
+})();
 </script>
 {% endif %}
 {% endblock %}

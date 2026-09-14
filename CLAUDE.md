@@ -123,8 +123,12 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   renames and closes one only on an explicit ask, and files a todo into one only when the
   person names it (`TodoOp.project`, an id or a name from the context, `-` clears); a name
   that matches no open project fails the op (`ops.OpError`), it never guesses or creates.
-  The web shows the undated todos as a list per project, dragged within the list; moving
-  a todo between projects is the chat's job. The order of the projects is set on the web
+  Moving existing todos in is `ProjectOp.todos` (ids) on the same create/update op: the
+  first prompt asked for a todo update per moved todo and the model created the project,
+  emitted none and said «переніс» (2026-09-14, in production). The web shows the undated
+  todos as a list per project (an h2 each, «Без дати» last for the ones without), a row
+  dragged within its list or into another one, which moves the todo (`POST /todos/order`
+  with `project`, through `db.update_todo`). The order of the projects is set on the web
   («↑» «↓» on the heading, `projects.position`, `db.move_project`), the one thing about a
   project the web writes. Closing a project detaches its open todos. The digest does not
   mention projects.

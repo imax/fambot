@@ -350,10 +350,24 @@ def build_web(
         return Response(status_code=204)
 
     @app.post("/todos/order", dependencies=[Depends(authed)])
-    async def todos_order(ids: Annotated[list[int], Form()]) -> Response:
-        """One «Без дати» list (a project's, or the ones without) after a drag: every id in
-        its new place. Besides the text, the one thing about a todo the web writes; the LLM
-        never sets the order, and a todo changes project only in the chat."""
+    async def todos_order(
+        ids: Annotated[list[int], Form()], project: Annotated[str, Form()] = ""
+    ) -> Response:
+        """One undated list (a project's, or «Без дати») after a drag: every id in its new
+        place; a todo dragged in from another list goes into this list's project
+        (`project`: its id, '' for none) through the db method the LLM's update op uses.
+        With the text, the two things about a todo the web writes; the LLM never sets the
+        order."""
+        pid: int | None = None
+        if project:
+            found = db.get_project(int(project)) if project.isdigit() else None
+            if found is None or not found.is_open:
+                raise HTTPException(status_code=404, detail="no such open project")
+            pid = found.id
+        for tid in ids:
+            todo = db.get_todo(tid)
+            if todo is not None and todo.is_open and todo.project_id != pid:
+                db.update_todo(tid, project_id=pid)
         db.reorder_todos(ids)
         return Response(status_code=204)
 
