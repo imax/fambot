@@ -58,7 +58,7 @@ async def serve(settings: Settings) -> None:
     transcriber = Transcriber(settings.openai_api_key) if settings.openai_api_key else None
 
     tg_app = build_bot(settings, family, db, pipeline, transcriber)
-    web_app = build_web(settings, family, db)
+    web_app = build_web(settings, family, db, pipeline=pipeline, transcriber=transcriber)
     server = uvicorn.Server(
         uvicorn.Config(web_app, host="0.0.0.0", port=settings.port, log_level="info")
     )
@@ -106,21 +106,25 @@ def web_login(settings: Settings, family: Family, as_user: str | None) -> tuple[
 async def web(settings: Settings, as_user: str | None = None) -> None:
     """The web view alone on the local db, no bot: a look at a change in a browser before
     it ships (`make local` first for production data). Prints a login link, then serves.
-    With ANTHROPIC_API_KEY set, the page has a «Чат» tab: the pipeline from the browser,
-    as the logged-in member, on this db."""
+    With ANTHROPIC_API_KEY set, a «Чат» page runs the pipeline from the browser, as the
+    logged-in member, on this db; with OPENAI_API_KEY too, «🎙» records a voice message."""
     db = Database(settings.database_path)
     family = Family(db, settings.admin_user_id)
     member, link = web_login(settings, family, as_user)
     pipeline = build_pipeline(settings, db, family) if settings.anthropic_api_key else None
+    transcriber = Transcriber(settings.openai_api_key) if settings.openai_api_key else None
     print(
         f"web on http://127.0.0.1:{settings.port}, db={settings.database_path};"
         f" chat {'on, model=' + settings.llm_model if pipeline else 'off (no ANTHROPIC_API_KEY)'};"
+        f" voice {'on' if transcriber else 'off (no OPENAI_API_KEY)'};"
         f" log in as {member.id} ({member.name}):\n{link}",
         flush=True,
     )
     server = uvicorn.Server(
         uvicorn.Config(
-            build_web(settings, family, db, pipeline=pipeline),
+            build_web(
+                settings, family, db, pipeline=pipeline, transcriber=transcriber, dev_chat=True
+            ),
             host="127.0.0.1",
             port=settings.port,
             log_level="warning",

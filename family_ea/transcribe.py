@@ -15,12 +15,16 @@ class Transcriber:
         self.model = model
         self.language = language
 
-    async def transcribe(self, audio: bytes, filename: str = "voice.ogg") -> str:
+    async def transcribe(
+        self, audio: bytes, filename: str = "voice.ogg", mime: str = "audio/ogg"
+    ) -> str:
+        """Telegram voice is ogg; a browser recording («🎙» on the web) is webm or mp4, and
+        the API reads the format off the filename's extension."""
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
             response = await client.post(
                 OPENAI_TRANSCRIPTIONS_URL,
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                files={"file": (filename, audio, "audio/ogg")},
+                files={"file": (filename, audio, mime)},
                 data={"model": self.model, "language": self.language},
             )
         response.raise_for_status()

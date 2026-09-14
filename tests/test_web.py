@@ -12,6 +12,8 @@ from family_ea.config import Settings
 from family_ea.db import Database, Member
 from family_ea.family import Family
 from family_ea.files import FileStore
+from family_ea.llm import LlmCall, LlmResult
+from family_ea.pipeline import Pipeline
 from family_ea.web import build_web
 from tests.conftest import KYIV
 
@@ -307,25 +309,34 @@ def test_login_rejects_bad_links(db: Database, family: Family) -> None:
     assert r.status_code == 303 and r.headers["location"] == "/"
 
 
-def test_web_chat_only_with_a_pipeline(db: Database, family: Family) -> None:
-    """`/chat` is the pipeline from the browser, for the laptop: the web built without a
-    pipeline (production) has neither the page nor the tab."""
-    from family_ea.llm import LlmCall, LlmResult
-    from family_ea.pipeline import Pipeline
+class FakeLlm:
+    """Every message: «Записав» and one remember op."""
 
-    class FakeLlm:
-        async def run(self, context: str, image=None) -> LlmCall:
-            result = LlmResult.model_validate(
-                {"reply": "Записав", "remember": [{"text": "Купити подарунок мамі."}]}
-            )
-            return LlmCall(result, "fake-model", {"input_tokens": 3, "output_tokens": 1}, "req")
+    async def run(self, context: str, image=None) -> LlmCall:
+        result = LlmResult.model_validate(
+            {"reply": "Записав", "remember": [{"text": "Купити подарунок мамі."}]}
+        )
+        return LlmCall(result, "fake-model", {"input_tokens": 3, "output_tokens": 1}, "req")
 
+
+def _pipeline(db: Database, family: Family) -> Pipeline:
+    return Pipeline(db, family, FakeLlm(), KYIV, store=FileStore(_settings().files_dir))
+
+
+def test_web_chat_only_on_the_laptop(db: Database, family: Family) -> None:
+    """`/chat` is the member's chat with what the LLM did, for the laptop: `dev_chat` adds
+    it; production, built with the pipeline but without it, has neither the page nor the
+    link."""
     plain = TestClient(build_web(_settings(), family, db))
     assert plain.get("/chat", headers=_auth()).status_code == 404
     assert 'href="/chat"' not in plain.get("/", headers=_auth()).text
+    prod = TestClient(build_web(_settings(), family, db, pipeline=_pipeline(db, family)))
+    assert prod.get("/chat", headers=_auth()).status_code == 404
+    assert 'href="/chat"' not in prod.get("/", headers=_auth()).text
 
-    pipeline = Pipeline(db, family, FakeLlm(), KYIV, store=FileStore(_settings().files_dir))
-    client = TestClient(build_web(_settings(), family, db, pipeline=pipeline))
+    client = TestClient(
+        build_web(_settings(), family, db, pipeline=_pipeline(db, family), dev_chat=True)
+    )
     assert client.get("/chat").status_code == 401
     page = client.get("/chat", headers=_auth()).text
     assert 'href="/chat"' in page and "поки порожньо" in page
@@ -360,3 +371,69 @@ def test_web_chat_only_with_a_pipeline(db: Database, family: Family) -> None:
     before = len(db.list_messages())
     client.post("/chat", data={"text": "  "}, headers=_auth())
     assert len(db.list_messages()) == before
+
+
+class FakeTranscriber:
+    """Returns `text`, or raises it; remembers what it was given."""
+
+    def __init__(self, text: str | Exception = "купити хліб") -> None:
+        self.text = text
+        self.calls: list[tuple[bytes, str, str]] = []
+
+    async def transcribe(self, audio: bytes, filename: str = "voice.ogg", mime: str = "audio/ogg"):
+        self.calls.append((audio, filename, mime))
+        if isinstance(self.text, Exception):
+            raise self.text
+        return self.text
+
+
+def test_web_send_voice(db: Database, family: Family) -> None:
+    """«🎙» in the nav posts a recording to /send: through the transcriber, into the
+    pipeline as a voice message; the transcript and the reply come back as JSON. Without
+    the pipeline and a transcriber there is neither the button nor the route."""
+    voice = {"audio": ("voice", b"opus", "audio/webm;codecs=opus")}
+    for app in (
+        build_web(_settings(), family, db),
+        build_web(_settings(), family, db, pipeline=_pipeline(db, family)),
+    ):
+        off = TestClient(app)
+        home = off.get("/", headers=_auth()).text
+        assert 'class="mic"' not in home and "div.sent" not in home
+        assert off.post("/send", files=voice, headers=_auth()).status_code == 404
+
+    heard = FakeTranscriber()
+    client = TestClient(
+        build_web(_settings(), family, db, pipeline=_pipeline(db, family), transcriber=heard)
+    )
+    home = client.get("/", headers=_auth()).text
+    assert 'class="mic"' in home and 'class="pen"' not in home  # voice only, no text box
+    assert client.post("/send", files=voice).status_code == 401
+    r = client.post("/send", files=voice, headers=_auth())
+    assert r.status_code == 200
+    assert r.json() == {"text": "купити хліб", "reply": "Записав"}
+    assert heard.calls == [(b"opus", "voice.webm", "audio/webm")]
+    assert db.current_remember_lists()["oleh"].text == "Купити подарунок мамі."
+    mine = [m for m in db.list_messages(10) if m.chat_with == "oleh"]
+    assert [(m.user_id, m.raw_text, m.is_voice, m.tg_message_id) for m in reversed(mine)] == [
+        ("oleh", "купити хліб", True, None),
+        ("bot", "Записав", False, None),
+    ]
+    assert client.post("/send", data={"text": "x"}, headers=_auth()).status_code == 422
+    r = client.post("/send", files={"audio": ("voice", b"aac", "audio/mp4")}, headers=_auth())
+    assert r.status_code == 200 and heard.calls[-1][1:] == ("voice.mp4", "audio/mp4")
+    r = client.post("/send", files={"audio": ("voice", b"?", "audio/flac")}, headers=_auth())
+    assert r.status_code == 415 and "формат" in r.json()["error"]
+
+    silent = TestClient(
+        build_web(
+            _settings(), family, db, pipeline=_pipeline(db, family), transcriber=FakeTranscriber("")
+        )
+    )
+    r = silent.post("/send", files=voice, headers=_auth())
+    assert r.status_code == 400 and "Нічого не почув" in r.json()["error"]
+    broken = FakeTranscriber(RuntimeError("boom"))
+    failing = TestClient(
+        build_web(_settings(), family, db, pipeline=_pipeline(db, family), transcriber=broken)
+    )
+    r = failing.post("/send", files=voice, headers=_auth())
+    assert r.status_code == 502 and "розпізнати" in r.json()["error"]

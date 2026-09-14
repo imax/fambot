@@ -8,10 +8,13 @@ order of the undated ones (dragged), on the home page. The calendar (`/calendar`
 (`/dreams`) and the notes page (`/notes`, the LLM's Markdown rendered, its source photos
 under it) are only read.
 
-`/chat` exists only when `build_web` gets a pipeline, which `python -m family_ea web` does
-on the laptop: a message typed there goes through the very pipeline the bot runs, as the
-logged-in member, and the page shows the reply and what was applied. Production runs
-without it; the bot is the chat there.
+A voice message to the bot from the web: «🎙» in the nav records, `POST /send`
+transcribes the recording like a Telegram voice message and runs the very pipeline the
+bot runs, as the logged-in member; the page shows the reply and reloads, so the change
+is in the lists at once. Nothing goes to Telegram, and there is no text box: typing
+belongs to Telegram (2026-09-14, Max's call). `/chat` (the member's chat with what the
+LLM did under each message, and a text form) exists only with `dev_chat`, which
+`python -m family_ea web` sets on the laptop; production has no chat page.
 """
 
 import json
@@ -25,7 +28,7 @@ from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
 
@@ -48,6 +51,7 @@ from .files import FileStore, files_for, files_of_kind
 from .ical import event_ics, ics_filename, todo_ics
 from .llm import Image
 from .pipeline import Pipeline, llm_result_lines
+from .transcribe import Transcriber
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +60,9 @@ SESSION_COOKIE = "session"
 DONE_SHOWN = 10  # the «Зроблено» tail of the home page
 CHAT_SHOWN = 30  # the tail of the member's chat on /chat
 SHA256 = re.compile(r"[0-9a-f]{64}")
+# What a browser's MediaRecorder produces (Chrome and Firefox: webm; Safari: mp4), by the
+# media type it labels the blob with, and the extension the transcription API wants.
+AUDIO_EXT = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/wav": "wav"}
 # The notes page as the LLM writes it: headings, lists, tables; raw HTML stays text.
 MARKDOWN = MarkdownIt("commonmark", {"html": False}).enable("table")
 
@@ -69,13 +76,26 @@ class NotLoggedIn(Exception):
         self.status_code = status_code
 
 
+def _said(message: str, status: int) -> JSONResponse:
+    """An error for the page to show under the nav, in the bot's words."""
+    return JSONResponse({"error": message}, status_code=status)
+
+
 def build_web(
-    settings: Settings, family: Family, db: Database, pipeline: Pipeline | None = None
+    settings: Settings,
+    family: Family,
+    db: Database,
+    pipeline: Pipeline | None = None,
+    transcriber: Transcriber | None = None,
+    dev_chat: bool = False,
 ) -> FastAPI:
+    """`pipeline` and `transcriber` together turn on «🎙» and `POST /send`; `dev_chat` adds
+    the `/chat` page (the laptop's `web` command; never production)."""
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     store = FileStore(settings.files_dir)
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-    templates.env.globals["chat_enabled"] = pipeline is not None
+    templates.env.globals["voice_enabled"] = pipeline is not None and transcriber is not None
+    templates.env.globals["chat_enabled"] = dev_chat and pipeline is not None
     templates.env.filters["dt"] = lambda iso: fmt_dt(iso, settings.tz)
     templates.env.filters["date"] = fmt_date
     templates.env.filters["day"] = lambda iso: fmt_dt(iso, settings.tz)[:5]
@@ -447,7 +467,34 @@ def build_web(
             request, "messages.html", {"messages": db.list_messages(limit=200)}
         )
 
-    if pipeline is not None:
+    if pipeline is not None and transcriber is not None:
+
+        @app.post("/send")
+        async def send(
+            member: Annotated[Member, Depends(authed)], audio: UploadFile
+        ) -> JSONResponse:
+            """A recording from «🎙», as the logged-in member: transcribed like a Telegram
+            voice message and run through the pipeline marked as voice, so the LLM knows.
+            The transcript and the reply come back for the page to show; nothing goes to
+            Telegram. Errors are said the way the bot says them."""
+            data = await audio.read()
+            mime = (audio.content_type or "").split(";")[0].strip()
+            ext = AUDIO_EXT.get(mime)
+            if not data or not ext:
+                return _said("Не зміг прочитати запис: невідомий формат аудіо.", 415)
+            try:
+                text = await transcriber.transcribe(data, filename=f"voice.{ext}", mime=mime)
+            except Exception:
+                log.exception("transcription failed")
+                return _said(
+                    "Не зміг розпізнати голосове. Спробуй ще раз або напиши в Telegram.", 502
+                )
+            if not text:
+                return _said("Нічого не почув у цьому голосовому.", 400)
+            outcome = await pipeline.handle(member, text, is_voice=True)
+            return JSONResponse({"text": text, "reply": outcome.reply})
+
+    if dev_chat and pipeline is not None:
 
         @app.get("/chat", response_class=HTMLResponse)
         async def chat_page(

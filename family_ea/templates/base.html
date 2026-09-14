@@ -7,14 +7,22 @@
 <style>
   body { font: 15px/1.45 system-ui, sans-serif; max-width: 52rem; margin: 1.5rem auto; padding: 0 1rem; color: #222; overflow-wrap: anywhere; }
   nav { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.5rem; }
-  nav a.current { color: #222; text-decoration: none; font-weight: 600; }
+  nav a.current, footer a.current { color: #222; text-decoration: none; font-weight: 600; }
   nav form { margin-left: auto; }
   nav input[type=search] { font: inherit; padding: .3rem .4rem; width: 9rem; max-width: 100%; box-sizing: border-box; }
-  .admin { position: relative; }
-  .admin summary { cursor: pointer; color: #555; }
-  .admin div { position: absolute; left: 0; top: 100%; z-index: 1; min-width: 10rem; margin-top: .3rem; padding: .3rem 0;
-               background: #fff; border: 1px solid #ddd; border-radius: .4rem; box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
-  .admin a { display: block; padding: .35rem 1rem; }
+  nav .send { display: flex; gap: .2rem; align-items: center; margin-left: auto; }
+  nav .send + form { margin-left: 0; }
+  nav .send button { margin: 0; padding: .2rem .4rem; border: 0; background: none; font-size: 1.1rem; line-height: 1;
+                     cursor: pointer; -webkit-appearance: none; appearance: none; white-space: nowrap; }
+  nav .send button.rec { color: #b33; font-size: .95rem; font-weight: 600; animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .45; } }
+  .sent { margin: -.75rem 0 1.5rem; padding: .5rem .8rem; background: #f6f6f6; border-radius: .5rem; white-space: pre-line; }
+  .sent .meta { display: block; }
+  .sent .bot { margin-top: .4rem; }
+  .sent .error { margin: 0; }
+  footer { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 3rem; padding-top: .6rem; border-top: 1px solid #eee;
+           font-size: .85rem; }
+  footer a { color: #888; }
   h2 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; border-bottom: 1px solid #ddd; padding-bottom: .25rem; }
   h3 { font-size: .95rem; margin: 1rem 0 .25rem; color: #555; font-weight: 600; }
   ul { list-style: none; padding: 0; margin: 0; }
@@ -25,7 +33,6 @@
   .overdue .meta { color: #b33; }
   pre { background: #f6f6f6; padding: .6rem; overflow-x: auto; font-size: .8rem; }
   details summary { cursor: pointer; color: #555; font-size: .85rem; }
-  .admin summary { font-size: inherit; }
   .status-done, .status-dropped, .status-cancelled { text-decoration: line-through; color: #888; }
   textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem; }
   button { font: inherit; padding: .4rem 1rem; margin-top: .5rem; }
@@ -111,19 +118,87 @@
   <a href="/notes"{% if path.startswith('/notes') %} class="current"{% endif %}>Нотатки</a>
   <a href="/items"{% if path.startswith('/items') %} class="current"{% endif %}>Речі</a>
   <a href="/dreams"{% if path.startswith('/dreams') %} class="current"{% endif %}>Мрії</a>
-  <details class="admin">
-    <summary>Адмін</summary>
-    <div>
-      <a href="/facts">Факти</a>
-      <a href="/family">Користувачі</a>
-      <a href="/messages">Повідомлення</a>
-      {% if chat_enabled %}<a href="/chat">Чат</a>{% endif %}
-    </div>
-  </details>
+  {% if voice_enabled %}
+  {# a voice message to the bot from any page: «🎙» records (tap, speak, tap); it goes through
+     the bot's pipeline and what was said and the reply show under the nav #}
+  <span class="send"><button type="button" class="mic" title="Голосове боту">🎙</button></span>
+  {% endif %}
   <form method="get" action="/"><input type="search" name="q" value="{{ q or '' }}" placeholder="пошук"></form>
 </nav>
+{% if voice_enabled %}<div class="sent" hidden></div>{% endif %}
 {% block body %}{% endblock %}
+{# the admin pages: rarely opened, so at the foot of every page, not in the nav #}
+<footer>
+  <a href="/facts"{% if path.startswith('/facts') %} class="current"{% endif %}>Факти</a>
+  <a href="/family"{% if path.startswith('/family') %} class="current"{% endif %}>Користувачі</a>
+  <a href="/messages"{% if path.startswith('/messages') %} class="current"{% endif %}>Повідомлення</a>
+  {% if chat_enabled %}<a href="/chat"{% if path.startswith('/chat') %} class="current"{% endif %}>Чат</a>{% endif %}
+</footer>
 <dialog class="lightbox"><img alt=""></dialog>
+{% if voice_enabled %}
+<script>
+  // A voice message to the bot from the web. «🎙» starts a recording and a second tap stops
+  // and sends it; the server transcribes it and runs the pipeline, then the page reloads
+  // (the change is in the lists) and shows what was said and the reply under the nav, kept
+  // across that one reload in sessionStorage. An error shows in the same place, without a
+  // reload.
+  (function () {
+    var mic = document.querySelector('nav button.mic'), box = document.querySelector('div.sent');
+    var meta = function (text) { var m = document.createElement('span'); m.className = 'meta'; m.textContent = text; return m; };
+    var show = function (nodes) { box.replaceChildren.apply(box, nodes); box.hidden = false; };
+    var showError = function (text) { var p = document.createElement('p'); p.className = 'error'; p.textContent = text; show([p]); };
+    var render = function (d) {
+      var you = document.createElement('div'), bot = document.createElement('div');
+      you.append(meta('🎙 голосове'), d.text);
+      bot.className = 'bot';
+      bot.append(meta('бот'), d.reply);
+      show([you, bot]);
+    };
+    try {
+      var kept = sessionStorage.getItem('sent');
+      if (kept) { sessionStorage.removeItem('sent'); render(JSON.parse(kept)); }
+    } catch (e) {}
+    var post = function (body, pending) {
+      show([meta(pending)]);
+      return fetch('/send', { method: 'POST', body: body }).then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) { showError(d.error || 'Не вийшло.'); return; }
+          try { sessionStorage.setItem('sent', JSON.stringify(d)); } catch (e) { render(d); return; }
+          location.reload();
+        });
+      }, function () { showError('Не надіслалось. Спробуй ще раз.'); });
+    };
+    var rec = null;
+    mic.addEventListener('click', function () {
+      if (rec) { rec.stop(); return; }
+      if (!navigator.mediaDevices || !window.MediaRecorder) { showError('Цей браузер не вміє записувати голос.'); return; }
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+        var type = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm']
+          .filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0];
+        var chunks = [];
+        rec = new MediaRecorder(stream, type ? { mimeType: type } : {});
+        rec.addEventListener('dataavailable', function (e) { if (e.data.size) chunks.push(e.data); });
+        rec.addEventListener('stop', function () {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          var blob = new Blob(chunks, { type: rec.mimeType });
+          rec = null;
+          mic.className = 'mic';
+          mic.textContent = '…';
+          mic.disabled = true;
+          var body = new FormData();
+          body.append('audio', blob, 'voice');
+          post(body, '🎙 розпізнаю…').then(function () { mic.textContent = '🎙'; mic.disabled = false; });
+        });
+        rec.start();
+        box.hidden = true;
+        mic.className = 'mic rec';
+        mic.textContent = '■ надіслати';
+        mic.title = 'Запис… тап, щоб надіслати';
+      }, function () { showError('Немає доступу до мікрофона.'); });
+    });
+  })();
+</script>
+{% endif %}
 <script>
   // A photo opens over the page; Esc, a tap or a click closes it. Modified clicks keep the link.
   (function () {

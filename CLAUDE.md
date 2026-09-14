@@ -63,7 +63,8 @@ family_ea/
   files.py      FileStore (bytes under FILES_DIR by SHA-256, `ab/ab12….jpg`, never rewritten),
                 files_for() (the files under each item, from source_message_id and the
                 `applied` log), files_of_kind() (the photos the notes page was written from)
-  transcribe.py OpenAI gpt-4o-transcribe via httpx
+  transcribe.py OpenAI gpt-4o-transcribe via httpx (Telegram voice: ogg; the web: webm or
+                mp4, whatever the browser recorded)
   ical.py       an event (timed or all-day) or a dated todo (all-day) -> .ics bytes
   backup.py     the backup archive: a checked db snapshot + the files under files/ +
                 notes.md and dreams.md for people, zipped (missing files are reported,
@@ -82,8 +83,12 @@ family_ea/
                 POST /todos/:id/done and /todos/:id/text (a tap on the home
                 page), POST /todos/order (the undated list after a drag), POST
                 /projects/order (the project headings after a drag), GET /backup.db
-                (bearer token); GET/POST /chat only when built with a pipeline (`web`
-                on the laptop): the pipeline from the browser, never in production
+                (bearer token); POST /send (a voice message to the bot from the web:
+                «🎙» in the nav records, the recording is transcribed like a Telegram
+                voice message and runs the pipeline as the logged-in member, the reply
+                comes back as JSON for the page, nothing to Telegram; no text box, typing
+                is for Telegram); GET/POST /chat only with `dev_chat` (`web` on the
+                laptop): the member's chat with what the LLM did, never in production
   main.py       serve() runs bot + uvicorn in one loop; chat() REPL; pull(); backup(); show_log()
 tests/          deterministic; the LLM is faked, nothing hits the network
 ```
@@ -186,7 +191,13 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   project, `db.reorder_todos` touches only the ids posted); the LLM never sets the order,
   and `open_todos()` returns it so the timeline, the digest and the LLM context agree.
   Unplaced ones (new since the last drag) come first, newest first. Nothing reopens a
-  closed todo.
+  closed todo. Everything else a person changes from the web goes through the bot's own
+  pipeline: «🎙» in the nav (`POST /send`, 2026-09-14) sends a voice message as the
+  logged-in member, stored in their chat like one from Telegram (the recording is
+  transcribed by the same `Transcriber` and marked `is_voice`), and the page shows the
+  transcript and the reply and reloads. Voice only: a text box was built the same day
+  and dropped before release, typing is what Telegram is for. The reply is never sent
+  to Telegram: the exchange is in the database, so the next context has it.
 - **Every push is deterministic and stored.** The morning digest renders each member's
   board (own first), today's and tomorrow's events, then todos due today and overdue,
   never the undated ones (they are on the web), no LLM call, and is silent when empty;
