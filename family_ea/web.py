@@ -353,7 +353,7 @@ def build_web(
     async def todos_order(
         ids: Annotated[list[int], Form()], project: Annotated[str, Form()] = ""
     ) -> Response:
-        """One undated list (a project's, or «Без дати») after a drag: every id in its new
+        """One undated list (a project's, or «Інше») after a drag: every id in its new
         place; a todo dragged in from another list goes into this list's project
         (`project`: its id, '' for none) through the db method the LLM's update op uses.
         With the text, the two things about a todo the web writes; the LLM never sets the

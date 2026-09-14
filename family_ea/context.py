@@ -385,7 +385,8 @@ class Day:
 @dataclass
 class Group:
     """The undated todos of one project, in the hand-set order; `name` '' and `project_id`
-    None for the ones without a project. `first` / `last`: which of «↑» «↓» to show."""
+    None for the ones without a project («Інше» on the web, the default). `first` /
+    `last`: which of «↑» «↓» to show."""
 
     name: str
     rows: list[Row] = field(default_factory=list)

@@ -34,8 +34,8 @@
 </ul>
 {% endif %}
 {# the undated todos: a list per project (an h2 like the rest; «↑» «↓» set the projects'
-   order), then «Без дати» for the ones without a project, the default. A row is dragged by
-   «⋮⋮» within its list or into another one, which moves the todo into that project #}
+   order), then «Інше», the default project: the ones without one. A row is dragged by «⋮⋮»
+   within its list or into another one, which moves the todo into that project #}
 {% set projects = timeline.undated | length > 1 %}
 {% set sortable = projects or timeline.undated[0].rows | length > 1 %}
 {% for g in timeline.undated %}
@@ -46,7 +46,7 @@
     {% if not g.last %}<button name="step" value="1" title="Нижче">↓</button>{% endif %}
   </form>
 </h2>
-{% else %}<h2>Без дати</h2>{% endif %}
+{% else %}<h2>Інше</h2>{% endif %}
 <ul class="rows{% if sortable %} sortable{% endif %}" data-project="{{ g.project_id or '' }}">
   {% for r in g.rows %}{% include "_row.html" %}{% endfor %}
   <li class="empty"{% if g.rows %} hidden{% endif %}>нічого</li>
@@ -163,7 +163,7 @@
 <script>
 // Drag by the handle (pointer events: mouse and touch alike). The row moves as the pointer
 // passes the middle of a neighbour, in its own list or in another one (a project's, or
-// «Без дати»); on release the list it landed in posts its order and its project, which
+// «Інше»); on release the list it landed in posts its order and its project, which
 // moves the todo there. The body holds the pointer capture: the row is re-inserted while
 // dragging, and it may change lists.
 (() => {

@@ -126,7 +126,8 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   Moving existing todos in is `ProjectOp.todos` (ids) on the same create/update op: the
   first prompt asked for a todo update per moved todo and the model created the project,
   emitted none and said «переніс» (2026-09-14, in production). The web shows the undated
-  todos as a list per project (an h2 each, «Без дати» last for the ones without), a row
+  todos as a list per project (an h2 each, «Інше» last for the ones without: the default,
+  not a project row, «в Інше» in the chat is `project: "-"`), a row
   dragged within its list or into another one, which moves the todo (`POST /todos/order`
   with `project`, through `db.update_todo`). The order of the projects is set on the web
   («↑» «↓» on the heading, `projects.position`, `db.move_project`), the one thing about a
