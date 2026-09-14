@@ -5,7 +5,7 @@
     {%- elif r.kind == 'reminder' %}<span class="mark">⏰</span>{{ r.text }}
     {%- else %}{{ r.text }}{% endif %}
     {%- if r.ics_url %} <a class="ical" href="{{ r.ics_url }}" title="в календар (.ics)">📅</a>{% endif %}
-    {%- set meta = [r.note, r.who] | select | join(' · ') %}
+    {%- set meta = [r.note, r.who, r.project] | select | join(' · ') %}
     {%- if meta %} <span class="meta">· {{ meta }}</span>{% endif %}
   </span>
   {%- if r.kind == 'todo' %}

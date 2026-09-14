@@ -1,5 +1,5 @@
-"""SQLite storage: members, messages, items, events, todos, dreams, reminders, facts,
-notes, today lists, remember lists.
+"""SQLite storage: members, messages, items, events, todos, projects, dreams, reminders,
+facts, notes, today lists, remember lists.
 
 One connection, one process, one writer. Original messages are never mutated; items are
 removed (gone) and every change to one writes an item_history row; todos and dreams are
@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS todos (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
   source_message_id INTEGER NOT NULL,
+  closed_at TEXT,
+  project_id INTEGER                -- the project it is grouped under (projects.id); NULL = none
+);
+
+CREATE TABLE IF NOT EXISTS projects (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,               -- «Калинівка», «Авто»: a group of todos, nothing more
+  status TEXT NOT NULL,             -- 'open' | 'closed'
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
   closed_at TEXT
 );
 
@@ -222,6 +232,7 @@ class Todo:
     source_message_id: int
     closed_at: str | None
     position: int | None = None  # set by dragging on the web; meaningful for undated ones
+    project_id: int | None = None  # the project it is grouped under; None = none
 
     @property
     def is_open(self) -> bool:
@@ -230,6 +241,24 @@ class Todo:
     @property
     def has_due(self) -> bool:
         return bool(self.due)
+
+
+@dataclass(frozen=True)
+class Project:
+    """A group of todos with a name, for the eye: «Калинівка», «Авто». No dates, no owner,
+    no text; the todos keep the project as `project_id`. Closing one detaches its open
+    todos."""
+
+    id: int
+    name: str
+    status: str  # 'open' | 'closed'
+    created_by: str
+    created_at: str
+    closed_at: str | None
+
+    @property
+    def is_open(self) -> bool:
+        return self.status == "open"
 
 
 @dataclass(frozen=True)
@@ -391,6 +420,10 @@ def _dream(row: sqlite3.Row) -> Dream:
     return Dream(**dict(row))
 
 
+def _project(row: sqlite3.Row) -> Project:
+    return Project(**dict(row))
+
+
 def _event(row: sqlite3.Row) -> Event:
     return Event(**dict(row))
 
@@ -401,7 +434,7 @@ def _reminder(row: sqlite3.Row) -> Reminder:
 
 ITEM_UPDATABLE = ("name", "owner", "place", "spot", "note")
 ITEM_LABELS = {"name": "назва", "owner": "власник", "note": "примітка"}  # history detail
-TODO_UPDATABLE = ("text", "owner", "due")
+TODO_UPDATABLE = ("text", "owner", "due", "project_id")
 EVENT_UPDATABLE = ("text", "who", "starts_at", "until", "date_from", "date_to")
 REMINDER_UPDATABLE = ("text", "who", "at")
 
@@ -465,6 +498,11 @@ class Database:
         if "description" not in columns:
             # 2026-09-11, later that evening: the LLM describes each photo for the web.
             self.conn.execute("ALTER TABLE attachments ADD COLUMN description TEXT")
+            self.conn.commit()
+        columns = {r[1] for r in self.conn.execute("PRAGMA table_info(todos)")}
+        if "project_id" not in columns:
+            # 2026-09-14: projects group the todos.
+            self.conn.execute("ALTER TABLE todos ADD COLUMN project_id INTEGER")
             self.conn.commit()
 
     def close(self) -> None:
@@ -952,17 +990,18 @@ class Database:
         created_by: str,
         source_message_id: int,
         due: str | None = None,
+        project_id: int | None = None,
     ) -> int:
         cur = self.conn.execute(
             "INSERT INTO todos (text, owner, status, due, created_by, created_at,"
-            " source_message_id) VALUES (?, ?, 'open', ?, ?, ?, ?)",
-            (text, owner, due, created_by, utc_now_iso(), source_message_id),
+            " source_message_id, project_id) VALUES (?, ?, 'open', ?, ?, ?, ?, ?)",
+            (text, owner, due, created_by, utc_now_iso(), source_message_id, project_id),
         )
         self.conn.commit()
         return int(cur.lastrowid or 0)
 
-    def update_todo(self, todo_id: int, **fields: str | None) -> bool:
-        """Update text/owner/due of an open todo. Returns False if not open."""
+    def update_todo(self, todo_id: int, **fields: str | int | None) -> bool:
+        """Update text/owner/due/project_id of an open todo. Returns False if not open."""
         fields = {k: v for k, v in fields.items() if k in TODO_UPDATABLE}
         if not fields:
             return False
@@ -1010,10 +1049,10 @@ class Database:
         return [_todo(r) for r in rows]
 
     def reorder_todos(self, ids: list[int]) -> None:
-        """The undated list as someone dragged it on the web: `ids` in this order; every other
-        open todo (new since that page was drawn, or missing from a stale one) loses its
-        position and goes on top, newest first. Ids that are not open are ignored."""
-        self.conn.execute("UPDATE todos SET position = NULL WHERE status = 'open'")
+        """One undated list as someone dragged it on the web (a project's, or the ones without
+        a project): `ids` in this order. Other open todos keep their positions: the lists of
+        the other projects were not touched, and a new todo (no position yet) stays on top.
+        Ids that are not open are ignored."""
         self.conn.executemany(
             "UPDATE todos SET position = ? WHERE id = ? AND status = 'open'",
             [(n, tid) for n, tid in enumerate(ids, start=1)],
@@ -1027,6 +1066,57 @@ class Database:
             (pattern, limit),
         ).fetchall()
         return [_todo(r) for r in rows]
+
+    # --- projects -------------------------------------------------------------
+
+    def create_project(self, name: str, *, created_by: str) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO projects (name, status, created_by, created_at) VALUES (?, 'open', ?, ?)",
+            (name, created_by, utc_now_iso()),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid or 0)
+
+    def rename_project(self, project_id: int, name: str) -> bool:
+        """Returns False if not open."""
+        cur = self.conn.execute(
+            "UPDATE projects SET name = ? WHERE id = ? AND status = 'open'", (name, project_id)
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def close_project(self, project_id: int) -> bool:
+        """Close an open project; its open todos are left without a project (done ones keep
+        it, for the record). Returns False if not open."""
+        cur = self.conn.execute(
+            "UPDATE projects SET status = 'closed', closed_at = ? WHERE id = ? AND status = 'open'",
+            (utc_now_iso(), project_id),
+        )
+        if cur.rowcount == 1:
+            self.conn.execute(
+                "UPDATE todos SET project_id = NULL WHERE project_id = ? AND status = 'open'",
+                (project_id,),
+            )
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def get_project(self, project_id: int) -> Project | None:
+        row = self.conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        return _project(row) if row else None
+
+    def open_projects(self) -> list[Project]:
+        """In the order they were made: the home page and the LLM context list them so."""
+        rows = self.conn.execute(
+            "SELECT * FROM projects WHERE status = 'open' ORDER BY id"
+        ).fetchall()
+        return [_project(r) for r in rows]
+
+    def open_project_by_name(self, name: str) -> Project | None:
+        """The open project called so, letter case aside (Ukrainian included)."""
+        row = self.conn.execute(
+            "SELECT * FROM projects WHERE status = 'open' AND ufold(name) = ufold(?)", (name,)
+        ).fetchone()
+        return _project(row) if row else None
 
     # --- dreams ---------------------------------------------------------------
 

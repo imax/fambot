@@ -1,7 +1,7 @@
 # Family EA
 
 Private family assistant in Telegram: two adults throw text and voice at the bot, it keeps
-one shared state (items, events, todos, dreams, reminders, two boards per member, one notes page),
+one shared state (items, events, todos in projects, dreams, reminders, two boards per member, one notes page),
 answers questions from it,
 pushes a morning digest and sends reminders at the asked time. Deployed to Fly.io, SQLite on a volume, in real use since 2026-09-10.
 
@@ -47,14 +47,15 @@ family_ea/
                 `session` cookie; `pull` signs a `backup` bearer. Nothing is stored.
   family.py     Family over the members table (+ ADMIN_USER_ID); slugify() makes ids from names
   db.py         SQLite schema + all queries; dataclasses Message/Attachment/Item/Event/
-                Todo/Dream/Reminder/Notes/Board; item_history is written by the item methods only;
+                Todo/Project/Dream/Reminder/Notes/Board; item_history is written by the item methods only;
                 _migrate() for what CREATE IF NOT EXISTS cannot express;
                 backup_to() is the online backup behind GET /backup.db
   context.py    deterministic LLM context, event agenda (today/tomorrow/later/recent),
-                todo buckets (today/overdue/open/later), the boards (blocks for the
+                todo buckets (today/overdue/open/later), the project lines, the boards (blocks for the
                 web and the digest head), the dream lines, the notes page for the LLM,
                 the digest text, the web home
-                (calendar days; overdue / dated / undated todos), the search stems
+                (calendar days; overdue / dated todos; the undated ones in a group per
+                project), the search stems
   llm.py        pydantic output schema, system prompt, the one messages.parse() call
   ops.py        apply LLM ops to db, with validation and an `applied` log
   pipeline.py   store (message, then its photo as an attachment) -> context -> LLM -> ops -> reply;
@@ -115,6 +116,15 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   «commitment» with `due_at` or a date window, and the LLM filed appointments there; the
   single day field is what keeps the two apart.) Different lifecycles, different data. The
   same goes for any new kind of thing (reminders): its own table, its own ops.
+- **A project is a name that groups todos, nothing more** (2026-09-14, when 18 undated
+  todos in one column stopped being readable). `projects` (name, open/closed) and
+  `todos.project_id`; no dates, owner, text or events on a project. The LLM creates,
+  renames and closes one only on an explicit ask, and files a todo into one only when the
+  person names it (`TodoOp.project`, an id or a name from the context, `-` clears); a name
+  that matches no open project fails the op (`ops.OpError`), it never guesses or creates.
+  The web shows the undated todos as a list per project, dragged within the list; moving
+  a todo between projects is the chat's job. Closing a project detaches its open todos.
+  The digest does not mention projects.
 - **A dream is a shared list entry with an author, not a todo without a date.** `dreams`
   (2026-09-13): text, who dreamt it up (`created_by`, shown to both), open / fulfilled /
   dropped; no owner, no date anywhere (not on the page, not in `dreams.md`), never
@@ -161,10 +171,11 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   take it back, then `POST /todos/:id/done`, `db.close_todo`; the done/drop
   buttons of 2026-09-10 were removed as ugly, dropping stays with the LLM), the text («✎»
   on the row, `POST /todos/:id/text`, `db.update_todo`, open ones only)
-  and the order of the undated ones (`position`, dragged on the home page,
-  `db.reorder_todos`); the LLM never sets the order, and `open_todos()`
-  returns it so the timeline, the digest and the LLM context agree. Unplaced ones (new
-  since the last drag) come first, newest first. Nothing reopens a closed todo.
+  and the order of the undated ones (`position`, dragged on the home page, one list per
+  project, `db.reorder_todos` touches only the ids posted); the LLM never sets the order,
+  and `open_todos()` returns it so the timeline, the digest and the LLM context agree.
+  Unplaced ones (new since the last drag) come first, newest first. Nothing reopens a
+  closed todo.
 - **Every push is deterministic and stored.** The morning digest renders each member's
   board (own first), today's and tomorrow's events, then todos due today and overdue,
   never the undated ones (they are on the web), no LLM call, and is silent when empty;
@@ -234,7 +245,7 @@ The backlog may name code.
 - Three kinds of knowledge, three owners: `members` table (who talks to the bot, the
   Telegram allowlist; only `ADMIN_USER_ID` is env, the admin edits the rest on the web),
   `facts` (stable background about the family; the human edits it on the web, the LLM only
-  reads it), items/events/todos/dreams/reminders/boards/the notes page (everything
+  reads it), items/events/todos/projects/dreams/reminders/boards/the notes page (everything
   people tell the bot; the
   LLM writes them).
 - Python 3.12, `uv` for deps, `ruff` for lint/format, `pytest` with `asyncio_mode=auto`.

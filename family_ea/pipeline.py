@@ -130,6 +130,7 @@ _OP_KIND = {
     "memories": "memory",  # rows from before 2026-09-11
     "events": "event",
     "todos": "todo",
+    "projects": "project",
     "commitments": "commitment",  # rows from before 2026-09-12
     "dreams": "dream",
     "notes": "notes",  # the one page, from 2026-09-13; `journal` above is the old log

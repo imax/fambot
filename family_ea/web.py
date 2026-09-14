@@ -177,7 +177,12 @@ def build_web(
             )
         now = datetime.now(settings.tz)
         timeline = build_timeline(
-            db.planned_events(), db.open_todos(), db.pending_reminders(), now, family
+            db.planned_events(),
+            db.open_todos(),
+            db.pending_reminders(),
+            now,
+            family,
+            projects=db.open_projects(),
         )
         return templates.TemplateResponse(
             request,
@@ -346,8 +351,9 @@ def build_web(
 
     @app.post("/todos/order", dependencies=[Depends(authed)])
     async def todos_order(ids: Annotated[list[int], Form()]) -> Response:
-        """The «Без дати» list after a drag: every id in its new place. Besides the text,
-        the one thing about a todo the web writes; the LLM never sets the order."""
+        """One «Без дати» list (a project's, or the ones without) after a drag: every id in
+        its new place. Besides the text, the one thing about a todo the web writes; the LLM
+        never sets the order, and a todo changes project only in the chat."""
         db.reorder_todos(ids)
         return Response(status_code=204)
 

@@ -1,5 +1,5 @@
-"""Apply LLM operations to the database: items, events, todos, dreams, reminders, today, remember
-boards, the notes page.
+"""Apply LLM operations to the database: items, events, todos, projects, dreams, reminders,
+today and remember boards, the notes page.
 
 Invalid ops (unknown ids, closed items, bad dates, an event without a date, a reminder
 without a time) are ignored and logged, never fatal; `failure_note` puts them under the
@@ -29,6 +29,7 @@ KIND_UK = {
     "item": "річ",
     "event": "подію",
     "todo": "задачу",
+    "project": "проєкт",
     "dream": "мрію",
     "reminder": "нагадування",
     "today": "список на сьогодні",
@@ -47,7 +48,7 @@ OP_UK = {
 
 @dataclass(frozen=True)
 class Applied:
-    kind: str  # 'item' | 'event' | 'todo' | 'dream' | 'reminder' | 'today' | 'remember' | 'notes'
+    kind: str  # item | event | todo | project | dream | reminder | today | remember | notes
     op: str
     id: int | None
     ok: bool
@@ -130,10 +131,32 @@ def _item_fields(i: ItemOp) -> tuple[dict, list[str]]:
     return fields, notes
 
 
-def _todo_fields(t: TodoOp, family: Family) -> tuple[dict, list[str]]:
-    """Validated fields present on the op, plus notes about anything dropped."""
-    fields: dict[str, str | None] = {}
+class OpError(Exception):
+    """An op that must not go through as given: the message meant something the code
+    cannot resolve (a project that does not exist), and changing anything would guess."""
+
+
+def normalize_project(value: str, db: Database) -> int | None:
+    """An open project's id from what the LLM sent: its id, or its name (the context lists
+    both). None when there is no such open project."""
+    value = value.strip()
+    if value.isdigit():
+        p = db.get_project(int(value))
+        return p.id if p and p.is_open else None
+    p = db.open_project_by_name(value) if value else None
+    return p.id if p else None
+
+
+def _todo_fields(t: TodoOp, family: Family, db: Database) -> tuple[dict, list[str]]:
+    """Validated fields present on the op, plus notes about anything dropped. An unknown
+    project raises OpError: the todo must not land in the wrong group or silently in none."""
+    fields: dict[str, str | int | None] = {}
     notes: list[str] = []
+    given, project = _given(t.project)
+    if given:
+        if project is not None and (pid := normalize_project(project, db)) is None:
+            raise OpError(f"unknown project {t.project!r}")
+        fields["project_id"] = pid if project is not None else None
     if (text := _text(t.text)) is not None:
         fields["text"] = text
     given, owner = _given(t.owner)
@@ -332,19 +355,54 @@ def apply_ops(
                 )
             )
 
+    # Projects before todos: «новий проєкт Авто, в нього: XC90» names the project in the
+    # todo op of the same message, by name.
+    for pr in result.projects:
+        name = _text(pr.name)
+        if pr.op == "create":
+            if name is None:
+                applied.append(Applied("project", "create", None, False, "empty name"))
+                continue
+            if (dup := db.open_project_by_name(name)) is not None:
+                applied.append(
+                    Applied("project", "create", dup.id, False, f"already exists as #{dup.id}")
+                )
+                continue
+            pid = db.create_project(name, created_by=author_id)
+            applied.append(Applied("project", "create", pid, True))
+        elif pr.op == "update":
+            if not pr.id or name is None:
+                applied.append(
+                    Applied("project", "update", pr.id or None, False, "nothing to update")
+                )
+                continue
+            ok = db.rename_project(pr.id, name)
+            applied.append(
+                Applied("project", "update", pr.id, ok, "" if ok else "not found or not open")
+            )
+        elif pr.op == "close":
+            ok = bool(pr.id) and db.close_project(pr.id)
+            note = "" if ok else "not found or not open"
+            applied.append(Applied("project", "close", pr.id or None, ok, note))
+
     for t in result.todos:
-        fields, notes = _todo_fields(t, family)
+        try:
+            fields, notes = _todo_fields(t, family, db)
+        except OpError as exc:
+            applied.append(Applied("todo", t.op, t.id or None, False, str(exc)))
+            continue
         note = "; ".join(notes)
         if t.op == "create":
             if "text" not in fields:
                 applied.append(Applied("todo", "create", None, False, "empty text"))
                 continue
             tid = db.create_todo(
-                fields["text"] or "",
-                owner=fields.get("owner"),
+                str(fields["text"] or ""),
+                owner=fields.get("owner"),  # type: ignore[arg-type]
                 created_by=author_id,
                 source_message_id=message_id,
-                due=fields.get("due"),
+                due=fields.get("due"),  # type: ignore[arg-type]
+                project_id=fields.get("project_id"),  # type: ignore[arg-type]
             )
             applied.append(Applied("todo", "create", tid, True, note))
         elif t.op == "update":

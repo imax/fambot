@@ -147,6 +147,21 @@ def test_context_shows_today_boards(
         "- oleh (Олег), оновлено 10.09 08:12:\n  сходити на НП\n  планка\n"
         "- anna (Анна): порожньо\n" in ctx
     )
+    home = db.create_project("Калинівка", created_by="oleh")
+    db.create_project("Авто", created_by="oleh")
+    mid = db.insert_message("oleh", "oleh", "...")
+    db.create_todo(
+        "Інструкція", owner="oleh", created_by="oleh", source_message_id=mid, project_id=home
+    )
+    db.create_todo("Вільна", owner=None, created_by="oleh", source_message_id=mid)
+    ctx = build_context(db, family, now, oleh, "привіт")
+    assert (
+        "## Проєкти (projects: групи задач для вебу, лише назва; створюються,"
+        " перейменовуються і закриваються лише на явне прохання)\n"
+        "- [#1] Калинівка (1 відкритих)\n"
+        "- [#2] Авто (0 відкритих)\n" in ctx
+    )
+    assert "- [#2] Вільна\n- [#1] Інструкція (Олег, проєкт: Калинівка)\n" in ctx
     assert (
         "## Не забути (remember: друга дошка кожного, без дня; змінюється лише на явне"
         " прохання)\n"

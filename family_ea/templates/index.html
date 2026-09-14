@@ -34,11 +34,18 @@
 </ul>
 {% endif %}
 <h2>Без дати</h2>
-{# two or more: a «⋮⋮» handle on each row; drag to set the order, it is saved for everyone #}
-{% set sortable = timeline.undated | length > 1 %}
+{# a list per project (h3), the ones without a project last; one plain list without projects.
+   Two or more rows: a «⋮⋮» handle on each; drag to set the order, it is saved for everyone #}
+{% set ns = namespace(sortable=false) %}
+{% for g in timeline.undated %}
+{% if g.name or timeline.undated | length > 1 %}<h3>{{ g.name or "Без проєкту" }}</h3>{% endif %}
+{% set sortable = g.rows | length > 1 %}
+{% if sortable %}{% set ns.sortable = true %}{% endif %}
 <ul class="rows{% if sortable %} sortable{% endif %}">
-  {% for r in timeline.undated %}{% include "_row.html" %}{% else %}<li class="empty">нічого</li>{% endfor %}
+  {% for r in g.rows %}{% include "_row.html" %}{% else %}<li class="empty">нічого</li>{% endfor %}
 </ul>
+{% endfor %}
+{% set sortable = ns.sortable %}
 {% if done %}
 <h2>Зроблено</h2>
 <ul class="rows done">
@@ -151,8 +158,8 @@
 // Drag by the handle (pointer events: mouse and touch alike). The row moves in the list as
 // the pointer passes the middle of a neighbour; on release the new order is posted. The
 // list, not the row, holds the pointer capture: the row is re-inserted while dragging.
-(() => {
-  const list = document.querySelector("ul.sortable");
+// Each project's list is its own; a row does not leave its list (that is the chat's job).
+document.querySelectorAll("ul.sortable").forEach((list) => {
   const order = () => Array.from(list.children, (li) => li.dataset.id);
   let item = null;
   let before = [];
@@ -194,7 +201,7 @@
   };
   list.addEventListener("pointerup", drop);
   list.addEventListener("pointercancel", drop);
-})();
+});
 </script>
 {% endif %}
 {% endblock %}

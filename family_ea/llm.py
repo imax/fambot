@@ -1,8 +1,9 @@
 """The single structured-output call per message. The LLM understands; code executes.
 
-Five kinds of output besides the reply: items (things and where they are), events
+Six kinds of output besides the reply: items (things and where they are), events
 (things that happen at a time or on a day and then pass), todos (things to do, with a
-deadline day or none), dreams (what the family wants some day: no date, one shared list)
+deadline day or none), projects (names that group the todos), dreams (what the family
+wants some day: no date, one shared list)
 and reminders (a message to send someone at a given moment); plus `today`, a member's «на
 сьогодні» board, `remember`, a member's «Не забути» board, and `notes`, the family's one
 reference page («Нотатки»): all free text, replaced whole, only when asked. What happened,
@@ -86,6 +87,17 @@ class TodoOp(BaseModel):
     status: Literal["done", "dropped", ""] = Field(
         default="", description="close: done — зроблено, dropped — більше не актуально"
     )
+    project: str = Field(
+        default="",
+        description="create/update: id проєкту з контексту; порожньо — не міняти; «-» прибрати",
+    )
+
+
+# A project is a name that groups todos; nothing else to it, so create / update / close.
+class ProjectOp(BaseModel):
+    op: Literal["create", "update", "close"]
+    id: int = Field(default=0, description="update/close: id існуючого проєкту")
+    name: str = Field(default="", description="create/update: назва проєкту, коротко")
 
 
 class DreamOp(BaseModel):
@@ -145,6 +157,7 @@ class LlmResult(BaseModel):
     items: list[ItemOp] = Field(default_factory=list)
     events: list[EventOp] = Field(default_factory=list)
     todos: list[TodoOp] = Field(default_factory=list)
+    projects: list[ProjectOp] = Field(default_factory=list)
     dreams: list[DreamOp] = Field(default_factory=list)
     reminders: list[ReminderOp] = Field(default_factory=list)
     today: list[TodayOp] = Field(default_factory=list)
@@ -161,7 +174,7 @@ SYSTEM_PROMPT = """\
 
 У контексті є «Факти про сім'ю» — стабільний фон, який веде людина сама: хто є хто, адреси, \
 звички, як до кого звертатись. Спирайся на них, але не редагуй: ти їх не повертаєш. Те, що \
-людина просить вести, — це items, events, todos, dreams і reminders; «Списки на \
+людина просить вести, — це items, events, todos, projects, dreams і reminders; «Списки на \
 сьогодні» — дошка кожного, яку ти переписуєш лише на явне прохання (today), «Не забути» — \
 друга така дошка кожного (remember); «Нотатки» — \
 одна довідкова сторінка сім'ї, яку ти так само переписуєш цілком лише на явне прохання \
@@ -170,7 +183,8 @@ SYSTEM_PROMPT = """\
 операцій і не обіцяй записати.
 
 Що ти вмієш, і більше нічого: відповідати в цьому чаті; читати фото, яке прислали з \
-повідомленням; вести речі (items: що у нас є і де лежить), events, todos, мрії (dreams: \
+повідомленням; вести речі (items: що у нас є і де лежить), events, todos, проєкти \
+(projects: групи задач на вебі), мрії (dreams: \
 спільний список на вебі), reminders, список на сьогодні (today) і список «Не забути» \
 (remember) кожного і сторінку «Нотатки» \
 (notes: одна довідка на вебі, яку ти сам дописуєш); щоранку о 08:30 \
@@ -234,7 +248,21 @@ starts_at (ISO 8601 з offset) і until, якщо кінець відомий; �
 часу доби: те, що має годину і місце, куди треба прийти, — подія («стоматолог о 15:30», \
 «сніданок з командою завтра о 10»); «подзвонити в банк завтра о 10» — задача на завтра, \
 годину лиши в тексті, а нагадування додай, лише якщо просять. «Записати Олю до \
-стоматолога» — задача.
+стоматолога» — задача. project — id проєкту з «Проєктів» у контексті, коли людина називає \
+його: «в Калинівку: написати інструкцію», «це по авто», «перенеси в документи» (update з \
+id задачі і project); «-» — забрати з проєкту. Проєкту з такою назвою нема — не вгадуй і \
+не створюй: задачу запиши без проєкту і спитай у reply, чи створити проєкт.
+- projects — проєкти: групи задач, щоб довгий список на вебі читався частинами: \
+«Калинівка», «Авто», «Документи». Проєкт — лише назва: без дат, власника, опису, \
+подій. Створюй лише на явне «новий проєкт …», «створи проєкт …» (create з name), \
+перейменовуй на явне (update з id), закривай на «закрий проєкт X», «Калинівка все» \
+(close: його відкриті задачі лишаються без проєкту). Задача потрапляє в проєкт лише \
+через операцію над нею: нова — create з project, наявна — todos update з її id і project \
+(назва проєкту з цього ж повідомлення теж підходить: «створи проєкт Авто і перенеси в \
+нього XC90 і R21» — це один create проєкту і update кожної з названих задач, знайдених у \
+«Відкритих задачах» за змістом). Без таких update нічого не переїде, тож не пиши в reply \
+«переніс», якщо їх не повернув. «Що по Калинівці?» — відповідай зі списку задач у reply, \
+без операцій.
 - reminders — нагадування: людина просить написати їй у певний момент («нагадай за годину \
 до зустрічі», «нагадай завтра о 9 купити квіти»). at — коли надіслати, ISO 8601 з offset; \
 «за годину до» події — її початок мінус година; про подію без «за скільки» — за годину до \

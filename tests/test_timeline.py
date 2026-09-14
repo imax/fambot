@@ -6,7 +6,7 @@ from datetime import date, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from family_ea.context import build_timeline, day_title
+from family_ea.context import Group, build_timeline, day_title
 from family_ea.db import Database, Reminder
 from family_ea.family import Family
 from family_ea.web import build_web
@@ -79,7 +79,8 @@ def test_build_timeline(family: Family) -> None:
         (1, "завтра", "Анна"),
         (5, "до 14.09", ""),
     ]
-    assert [(r.id, r.who, r.ics_url) for r in t.undated] == [(6, "Олег", None)]
+    assert [g.name for g in t.undated] == [""]  # no projects: one unnamed group
+    assert [(r.id, r.who, r.ics_url) for r in t.undated[0].rows] == [(6, "Олег", None)]
 
     assert [d.title for d in t.days] == [
         "Сьогодні, четвер 10.09",
@@ -106,7 +107,7 @@ def test_build_timeline(family: Family) -> None:
 
 def test_empty_timeline_keeps_today(family: Family) -> None:
     t = build_timeline([], [], [], NOW, family)
-    assert t.overdue == [] and t.dated == [] and t.undated == []
+    assert t.overdue == [] and t.dated == [] and t.undated == [Group("", [])]
     assert [(d.title, d.rows) for d in t.days] == [("Сьогодні, четвер 10.09", [])]
 
 
@@ -283,3 +284,54 @@ def test_web_home_empty(db: Database, family: Family, monkeypatch: pytest.Monkey
     assert "Відпочиваємо :-)" in home  # today, empty
     assert home.count("нічого") == 1  # undated, empty
     assert "<h2>Зроблено</h2>" not in home
+
+
+def test_web_home_groups_undated_todos_by_project(
+    db: Database, family: Family, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    freeze_web_clock(monkeypatch, NOW)
+    mid = db.insert_message("oleh", "oleh", "...")
+    home = db.create_project("Калинівка", created_by="oleh")
+    car = db.create_project("Авто", created_by="oleh")
+    empty = db.create_project("Документи", created_by="oleh")
+
+    def new(text: str, project: int | None = None, due: str | None = None) -> int:
+        return db.create_todo(
+            text, owner=None, created_by="oleh", source_message_id=mid, due=due, project_id=project
+        )
+
+    new("Інструкція по дому", home)
+    new("Свердловина", home)
+    new("XC90", car)
+    new("Окрема")
+    new("Віза", empty, due="2026-09-20")  # dated: in «З дедлайном», tagged, not in the group
+    client = TestClient(build_web(_settings(), family, db))
+    page = client.get("/", headers=_auth()).text
+    undated = page[page.index("<h2>Без дати</h2>") : page.index("<script>")]
+    heads = [
+        h for h in ("Калинівка", "Авто", "Документи", "Без проєкту") if f"<h3>{h}</h3>" in undated
+    ]
+    assert heads == ["Калинівка", "Авто", "Документи", "Без проєкту"]
+    assert [undated.index(f"<h3>{h}</h3>") for h in heads] == sorted(
+        undated.index(f"<h3>{h}</h3>") for h in heads
+    )
+    assert undated.index("Свердловина") < undated.index("Інструкція")  # newest first, unplaced
+    assert (
+        undated.index("<h3>Авто</h3>") < undated.index("XC90") < undated.index("<h3>Документи</h3>")
+    )
+    assert undated.count("нічого") == 1  # Документи has no undated todo
+    assert undated.count('class="rows sortable"') == 1  # only Калинівка has two rows
+    dated = page[page.index("<h2>З дедлайном</h2>") : page.index("<h2>Без дати</h2>")]
+    assert "Віза" in dated and "· Документи" in dated
+
+    db.close_project(car)
+    page = client.get("/", headers=_auth()).text
+    assert "<h3>Авто</h3>" not in page
+    rest = page[page.index("<h3>Без проєкту</h3>") :]
+    assert "XC90" in rest  # detached
+
+    # Without any project the list is plain, as before.
+    for p in db.open_projects():
+        db.close_project(p.id)
+    page = client.get("/", headers=_auth()).text
+    assert "<h3>" not in page[page.index("<h2>Без дати</h2>") :]

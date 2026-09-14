@@ -46,9 +46,67 @@ def test_todos_keep_the_order_dragged_on_the_web(db: Database) -> None:
     assert [x.id for x in db.open_todos()] == [d, c, a, b]
 
     db.close_todo(a, "done")
-    db.reorder_todos([a, d, c])  # a stale page: a is closed, ignored; b unlisted: on top
-    assert [(x.id, x.position) for x in db.open_todos()] == [(b, None), (d, 2), (c, 3)]
+    db.reorder_todos([a, d, c])  # a stale page: a is closed, ignored; b unlisted: keeps its place
+    assert [(x.id, x.position) for x in db.open_todos()] == [(d, 2), (c, 3), (b, 4)]
     assert [x.id for x in db.recent_done_todos(5)] == [a]
+    # Since projects (2026-09-14) each undated list is dragged on its own: the other
+    # lists' positions stay, so a todo of another project is never moved by a drag here.
+    e = new("e")
+    db.reorder_todos([e])
+    assert [(x.id, x.position) for x in db.open_todos()] == [(e, 1), (d, 2), (c, 3), (b, 4)]
+
+
+def test_projects_group_todos(db: Database) -> None:
+    mid = db.insert_message("oleh", "oleh", "...")
+    assert db.open_projects() == []
+    home = db.create_project("Калинівка", created_by="oleh")
+    car = db.create_project("Авто", created_by="oleh")
+    assert [p.name for p in db.open_projects()] == ["Калинівка", "Авто"]
+    assert db.open_project_by_name("калинівка") and db.open_project_by_name("КАЛИНІВКА")
+    assert db.open_project_by_name("Дім") is None
+
+    t1 = db.create_todo("Інструкція", owner=None, created_by="oleh", source_message_id=mid)
+    t2 = db.create_todo(
+        "XC90", owner=None, created_by="oleh", source_message_id=mid, project_id=car
+    )
+    assert db.update_todo(t1, project_id=home)
+    assert db.get_todo(t1).project_id == home and db.get_todo(t2).project_id == car
+    assert db.update_todo(t1, project_id=None) and db.get_todo(t1).project_id is None
+
+    assert db.rename_project(car, "Машини") and db.get_project(car).name == "Машини"
+    db.close_todo(t1, "done")
+    assert db.update_todo(t1, project_id=home) is False  # closed: untouched
+    t3 = db.create_todo(
+        "Ауді", owner=None, created_by="oleh", source_message_id=mid, project_id=car
+    )
+    db.close_todo(t3, "done")
+    assert db.close_project(car) and db.close_project(car) is False
+    assert [p.id for p in db.open_projects()] == [home]
+    assert db.open_project_by_name("Машини") is None
+    assert db.get_todo(t2).project_id is None  # open: detached
+    assert db.get_todo(t3).project_id == car  # done: kept, for the record
+    assert db.rename_project(car, "x") is False
+
+
+def test_old_todos_get_the_project_column(tmp_path: Path) -> None:
+    """A database from before 2026-09-14 has todos without `project_id`; the first start
+    adds it."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE todos (id INTEGER PRIMARY KEY, text TEXT NOT NULL, owner TEXT,
+          status TEXT NOT NULL, due TEXT, position INTEGER, created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL, source_message_id INTEGER NOT NULL, closed_at TEXT);
+        INSERT INTO todos VALUES (1, 'Старе', NULL, 'open', NULL, NULL, 'oleh',
+          '2026-09-10T10:00:00Z', 1, NULL);
+        """
+    )
+    conn.close()
+    db = Database(path)
+    assert [(t.id, t.project_id) for t in db.open_todos()] == [(1, None)]
+    db.close()
+    Database(path).close()  # the second start finds nothing to do
 
 
 def test_commitments_become_todos(tmp_path: Path) -> None:

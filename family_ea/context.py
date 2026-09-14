@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from .db import Board, Database, Dream, Event, Item, Member, Message, Notes, Reminder, Todo
+from .db import Board, Database, Dream, Event, Item, Member, Message, Notes, Project, Reminder, Todo
 from .family import Family
 
 RECENT_WINDOW_DAYS = 2  # items changed this recently are in every LLM context; older: search
@@ -175,16 +175,30 @@ def bucket_todos(items: list[Todo], now: datetime) -> Buckets:
     return b
 
 
-def todo_line(t: Todo, family: Family, with_id: bool = True) -> str:
+def todo_line(
+    t: Todo, family: Family, with_id: bool = True, projects: dict[int, str] | None = None
+) -> str:
+    """`projects` (id -> name) adds «проєкт: Авто» to the meta; the digest passes none."""
     parts = [f"[#{t.id}] " if with_id else "", t.text]
     meta = []
     if t.owner:
         meta.append(family.display_name(t.owner))
     if t.due:
         meta.append(f"до {fmt_due(t)}")
+    if projects and t.project_id in projects:
+        meta.append(f"проєкт: {projects[t.project_id]}")
     if meta:
         parts.append(f" ({', '.join(meta)})")
     return "".join(parts)
+
+
+def project_context_lines(projects: list[Project], todos: list[Todo]) -> list[str]:
+    """For the LLM: every open project with its id and how many open todos it holds."""
+    counts: dict[int, int] = {}
+    for t in todos:
+        if t.project_id is not None:
+            counts[t.project_id] = counts.get(t.project_id, 0) + 1
+    return [f"- [#{p.id}] {p.name} ({counts.get(p.id, 0)} відкритих)" for p in projects]
 
 
 # --- dreams ---------------------------------------------------------------------
@@ -358,6 +372,7 @@ class Row:
     note: str = ""  # 'до 17:00' / 'до 19.09': an end still ahead; a todo's deadline
     who: str = ""  # display name; 'усім' for a reminder to everyone; '' when nobody in particular
     ics_url: str | None = None  # «📅»: an event or a dated todo
+    project: str = ""  # a dated or overdue todo's project name; undated ones sit in its group
 
 
 @dataclass
@@ -368,15 +383,26 @@ class Day:
 
 
 @dataclass
+class Group:
+    """The undated todos of one project, in the hand-set order; `name` '' for the ones
+    without a project."""
+
+    name: str
+    rows: list[Row] = field(default_factory=list)
+
+
+@dataclass
 class Timeline:
     """The web home: the calendar (every day with a planned event or a pending reminder,
     today always, even empty), then the todos apart from it: past their deadline, with a
-    deadline from today on, and without one, in the hand-set order."""
+    deadline from today on, and without one, in the hand-set order, a group per open
+    project (in the order the projects were made) and the ones without a project last;
+    one group with no name when there are no projects."""
 
     days: list[Day] = field(default_factory=list)
     overdue: list[Row] = field(default_factory=list)
     dated: list[Row] = field(default_factory=list)
-    undated: list[Row] = field(default_factory=list)
+    undated: list[Group] = field(default_factory=list)
 
 
 def day_title(d: date, today: date) -> str:
@@ -404,6 +430,7 @@ def build_timeline(
     reminders: list[Reminder],
     now: datetime,
     family: Family,
+    projects: list[Project] | None = None,
 ) -> Timeline:
     """Place planned events and pending reminders on days; sort the open todos out.
 
@@ -419,6 +446,9 @@ def build_timeline(
     by_day: dict[date, list[tuple[tuple, Row]]] = {today: []}
     overdue: list[tuple[tuple, Row]] = []
     dated: list[tuple[tuple, Row]] = []
+    projects = projects or []
+    names = {p.id: p.name for p in projects}
+    groups: dict[int | None, list[Row]] = {}  # project id -> its undated rows, in order
     t = Timeline()
 
     def place(day: date, key: tuple, row: Row) -> None:
@@ -471,7 +501,7 @@ def build_timeline(
             continue
         who = family.display_name(td.owner) if td.owner else ""
         if not td.due:
-            t.undated.append(Row("todo", td.id, td.text, who=who))
+            groups.setdefault(td.project_id, []).append(Row("todo", td.id, td.text, who=who))
             continue
         due = date.fromisoformat(td.due)
         late = due < today
@@ -482,6 +512,7 @@ def build_timeline(
             note=f"до {due:%d.%m}" if late else due_note(due, today),
             who=who,
             ics_url=f"/todos/{td.id}.ics",
+            project=names.get(td.project_id, "") if td.project_id is not None else "",
         )
         (overdue if late else dated).append(((due, td.id), row))
 
@@ -490,6 +521,11 @@ def build_timeline(
         t.days.append(Day(day, day_title(day, today), rows))
     t.overdue = [row for _, row in sorted(overdue, key=lambda pair: pair[0])]
     t.dated = [row for _, row in sorted(dated, key=lambda pair: pair[0])]
+    # A todo of a closed project would have been detached; one of an unknown project (never
+    # the case) falls in with the ones without.
+    t.undated = [Group(p.name, groups.pop(p.id, [])) for p in projects]
+    rest = [row for pid, rows in groups.items() for row in rows]
+    t.undated.append(Group("", rest))
     return t
 
 
@@ -624,6 +660,8 @@ def build_context(
 
     agenda = build_agenda(db.planned_events(), now)
     open_todos = db.open_todos()
+    projects = db.open_projects()
+    project_names = {p.id: p.name for p in projects}
     buckets = bucket_todos(open_todos, now)
     # The inventory can be long; the LLM sees only what just changed and what the message
     # is about. The rest is on the web.
@@ -678,8 +716,14 @@ def build_context(
             [f"- {reminder_line(r, family, tz)}" for r in db.pending_reminders()],
         ),
         section(
+            "Проєкти (projects: групи задач для вебу, лише назва; створюються, перейменовуються"
+            " і закриваються лише на явне прохання)",
+            project_context_lines(projects, open_todos),
+            empty="поки жодного",
+        ),
+        section(
             "Відкриті задачі (todos, усі; без дати — у порядку з вебу)",
-            [f"- {todo_line(t, family)}" for t in open_todos],
+            [f"- {todo_line(t, family, projects=project_names)}" for t in open_todos],
         ),
         section("Сьогодні / прострочено", [render_digest(agenda, buckets, family, tz)]),
         section(

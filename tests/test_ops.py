@@ -381,3 +381,58 @@ def test_failure_note_names_what_did_not_go_through(db: Database, family: Family
         failure_note(applied) == "⚠️ Не вийшло: прибрати річ #77, створити подію, закрити задачу #5."
     )
     assert failure_note([]) == ""
+
+
+def test_project_ops_and_todos_in_projects(db: Database, family: Family) -> None:
+    mid = db.insert_message("oleh", "oleh", "...")
+
+    def run(payload: dict) -> list:
+        result = LlmResult.model_validate({"reply": "Ок.", **payload})
+        return apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+
+    # A project and a todo in it in one message: the todo names it, by name, before it has an id.
+    applied = run(
+        {
+            "projects": [{"op": "create", "name": " Калинівка "}, {"op": "create", "name": ""}],
+            "todos": [
+                {"op": "create", "text": "Інструкція", "project": "калинівка"},
+                {"op": "create", "text": "Ділянка", "project": "Дім"},
+                {"op": "create", "text": "Вільна"},
+            ],
+        }
+    )
+    assert [(a.kind, a.op, a.id, a.ok, a.note) for a in applied] == [
+        ("project", "create", 1, True, ""),
+        ("project", "create", None, False, "empty name"),
+        ("todo", "create", 1, True, ""),
+        ("todo", "create", None, False, "unknown project 'Дім'"),  # nothing guessed
+        ("todo", "create", 2, True, ""),
+    ]
+    assert db.get_todo(1).project_id == 1 and db.get_todo(2).project_id is None
+
+    applied = run(
+        {
+            "projects": [
+                {"op": "create", "name": "КАЛИНІВКА"},
+                {"op": "update", "id": 1, "name": "Дім"},
+            ],
+            "todos": [
+                {"op": "update", "id": 2, "project": "1"},  # by id
+                {"op": "update", "id": 1, "project": "-"},  # out of the project
+                {"op": "update", "id": 1, "project": "9"},
+            ],
+        }
+    )
+    assert [(a.kind, a.op, a.id, a.ok, a.note) for a in applied] == [
+        ("project", "create", 1, False, "already exists as #1"),
+        ("project", "update", 1, True, ""),
+        ("todo", "update", 2, True, ""),
+        ("todo", "update", 1, True, ""),
+        ("todo", "update", 1, False, "unknown project '9'"),
+    ]
+    assert db.get_project(1).name == "Дім"
+    assert db.get_todo(2).project_id == 1 and db.get_todo(1).project_id is None
+
+    applied = run({"projects": [{"op": "close", "id": 1}, {"op": "close", "id": 1}]})
+    assert [(a.ok, a.note) for a in applied] == [(True, ""), (False, "not found or not open")]
+    assert db.open_projects() == [] and db.get_todo(2).project_id is None
