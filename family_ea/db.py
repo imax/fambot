@@ -1038,7 +1038,7 @@ class Database:
     def open_todos(self) -> list[Todo]:
         """Open ones in the family's order: the unplaced ones first, newest first (a new todo
         goes on top until someone drags it), then the hand-set positions (see reorder_todos).
-        The timeline, the digest and the LLM context all take this order for the undated
+        The home page, the digest and the LLM context all take this order for the undated
         ones, so what someone dragged on the web holds everywhere; dated ones are shown by
         deadline wherever they appear."""
         rows = self.conn.execute(

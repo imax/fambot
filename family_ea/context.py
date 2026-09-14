@@ -1,5 +1,5 @@
 """Deterministic context for the LLM, the event agenda, todo buckets, the digest,
-the web timeline.
+the web calendar and the todo lists of the web home.
 
 Everything here is plain code: what is "today", what is "overdue", which items to
 show. The LLM only sees the result.
@@ -19,7 +19,7 @@ RECENT_WINDOW_DAYS = 2  # items changed this recently are in every LLM context; 
 ITEM_HITS = 20  # items found by the message's words
 RECENT_MESSAGES = 20
 PAST_EVENT_DAYS = 7  # ended events stay in the LLM context this long ("коли був стоматолог?")
-ALL_DAY = "весь день"  # the timeline's label where a time would be
+ALL_DAY = "весь день"  # the calendar's label where a time would be
 DEFAULT_EVENT_DURATION = timedelta(hours=1)
 WEEKDAYS_UK = ("понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота", "неділя")
 
@@ -356,13 +356,14 @@ def digest_text(
     return "\n".join(lines)
 
 
-# --- timeline -----------------------------------------------------------------
+# --- the calendar and the todo lists (the web) ----------------------------------
 
 
 @dataclass(frozen=True)
 class Row:
-    """One line of the home page, ready to render: a planned event, a pending reminder or
-    an open todo. Everything is formatted here; the template only lays it out."""
+    """One line of the calendar or the home page, ready to render: a planned event, a
+    pending reminder or an open todo. Everything is formatted here; the template only lays
+    it out."""
 
     kind: str  # 'event' | 'reminder' | 'todo'
     id: int
@@ -393,14 +394,12 @@ class Group:
 
 
 @dataclass
-class Timeline:
-    """The web home: the calendar (every day with a planned event or a pending reminder,
-    today always, even empty), then the todos apart from it: past their deadline, with a
-    deadline from today on, and without one, in the hand-set order, a group per open
-    project (in the order the projects were made) and the ones without a project last;
-    one group with no name when there are no projects."""
+class TodoLists:
+    """The open todos on the web home: past their deadline, with a deadline from today on,
+    and without one, in the hand-set order, a group per open project (in the order the
+    projects were made) and the ones without a project last; one group with no name when
+    there are no projects. The calendar is its own page (`build_calendar`)."""
 
-    days: list[Day] = field(default_factory=list)
     overdue: list[Row] = field(default_factory=list)
     dated: list[Row] = field(default_factory=list)
     undated: list[Group] = field(default_factory=list)
@@ -425,32 +424,20 @@ def due_note(due: date, today: date) -> str:
     return f"до {due:%d.%m}"
 
 
-def build_timeline(
-    events: list[Event],
-    todos: list[Todo],
-    reminders: list[Reminder],
-    now: datetime,
-    family: Family,
-    projects: list[Project] | None = None,
-) -> Timeline:
-    """Place planned events and pending reminders on days; sort the open todos out.
+def build_calendar(
+    events: list[Event], reminders: list[Reminder], now: datetime, family: Family
+) -> list[Day]:
+    """The calendar page: every day with a planned event or a pending reminder, today
+    always, even empty.
 
     A multi-day event still running sits on today with «до …»; a reminder whose time passed
     but is still pending (about to be sent) sits on today too. Within a day: all-day events,
-    then timed things by time. Todos past their deadline are overdue, oldest first; the
-    others with a deadline come by deadline, nearest first; the undated keep the order they
-    come in: `open_todos()` gives the hand-set one.
+    then timed things by time.
     """
     tz = now.tzinfo
     assert isinstance(tz, ZoneInfo)
     today = now.date()
     by_day: dict[date, list[tuple[tuple, Row]]] = {today: []}
-    overdue: list[tuple[tuple, Row]] = []
-    dated: list[tuple[tuple, Row]] = []
-    projects = projects or []
-    names = {p.id: p.name for p in projects}
-    groups: dict[int | None, list[Row]] = {}  # project id -> its undated rows, in order
-    t = Timeline()
 
     def place(day: date, key: tuple, row: Row) -> None:
         by_day.setdefault(day, []).append((key, row))
@@ -497,6 +484,32 @@ def build_timeline(
         )
         place(max(at.date(), today), (1, at.timestamp(), 1, r.id), row)
 
+    return [
+        Day(day, day_title(day, today), [row for _, row in sorted(by_day[day], key=lambda p: p[0])])
+        for day in sorted(by_day)
+    ]
+
+
+def build_todo_lists(
+    todos: list[Todo],
+    now: datetime,
+    family: Family,
+    projects: list[Project] | None = None,
+) -> TodoLists:
+    """Sort the open todos out for the home page.
+
+    Todos past their deadline are overdue, oldest first; the others with a deadline come by
+    deadline, nearest first; the undated keep the order they come in: `open_todos()` gives
+    the hand-set one.
+    """
+    today = now.date()
+    overdue: list[tuple[tuple, Row]] = []
+    dated: list[tuple[tuple, Row]] = []
+    projects = projects or []
+    names = {p.id: p.name for p in projects}
+    groups: dict[int | None, list[Row]] = {}  # project id -> its undated rows, in order
+    t = TodoLists()
+
     for td in todos:
         if not td.is_open:
             continue
@@ -517,9 +530,6 @@ def build_timeline(
         )
         (overdue if late else dated).append(((due, td.id), row))
 
-    for day in sorted(by_day):
-        rows = [row for _, row in sorted(by_day[day], key=lambda pair: pair[0])]
-        t.days.append(Day(day, day_title(day, today), rows))
     t.overdue = [row for _, row in sorted(overdue, key=lambda pair: pair[0])]
     t.dated = [row for _, row in sorted(dated, key=lambda pair: pair[0])]
     # A todo of a closed project would have been detached; one of an unknown project (never

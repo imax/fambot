@@ -13,34 +13,27 @@
   {% endfor %}
 </ul>
 {% endfor %}
-{# the calendar: a day is listed only when it has rows, except today: an empty day is always today #}
-{% for day in timeline.days %}
-<h2>{{ day.title }}</h2>
-<ul class="rows dated">
-  {% for r in day.rows %}{% include "_row.html" %}{% else %}<li class="empty">Відпочиваємо :-)</li>{% endfor %}
-</ul>
-{% endfor %}
 {# the todos: past their deadline, with one, without one (drag «⋮⋮» to order these) #}
-{% if timeline.overdue %}
+{% if todos.overdue %}
 <h2 class="overdue">Прострочено</h2>
 <ul class="rows overdue">
-  {% for r in timeline.overdue %}{% include "_row.html" %}{% endfor %}
+  {% for r in todos.overdue %}{% include "_row.html" %}{% endfor %}
 </ul>
 {% endif %}
-{% if timeline.dated %}
+{% if todos.dated %}
 <h2>З дедлайном</h2>
 <ul class="rows">
-  {% for r in timeline.dated %}{% include "_row.html" %}{% endfor %}
+  {% for r in todos.dated %}{% include "_row.html" %}{% endfor %}
 </ul>
 {% endif %}
 {# the undated todos: a section per project (an h2 like the rest, dragged by the «⋮⋮» next
    to the name when there is more than one project), then «Інше», the default project: the
    ones without one. A row is dragged by its «⋮⋮» within its list or into another one,
    which moves the todo into that project #}
-{% set projects = timeline.undated | length > 1 %}
-{% set sortable = projects or timeline.undated[0].rows | length > 1 %}
-{% set movable = timeline.undated | length > 2 %}
-{% for g in timeline.undated %}
+{% set projects = todos.undated | length > 1 %}
+{% set sortable = projects or todos.undated[0].rows | length > 1 %}
+{% set movable = todos.undated | length > 2 %}
+{% for g in todos.undated %}
 {% if g.name %}
 <section class="project" data-project="{{ g.project_id }}">
 <h2>{{ g.name }}{% if movable %}<span class="grip" title="Потягни, щоб переставити проєкт">⋮⋮</span>{% endif %}</h2>

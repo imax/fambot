@@ -1,4 +1,4 @@
-"""The web home: the calendar by day, the todos apart from it."""
+"""The web home (the boards, the todo lists) and the calendar page (events and reminders by day)."""
 
 import html
 from datetime import date, datetime
@@ -6,7 +6,7 @@ from datetime import date, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from family_ea.context import Group, build_timeline, day_title
+from family_ea.context import Group, build_calendar, build_todo_lists, day_title
 from family_ea.db import Database, Reminder
 from family_ea.family import Family
 from family_ea.web import build_web
@@ -40,7 +40,7 @@ def test_day_title() -> None:
     assert day_title(date(2026, 10, 7), today) == "Середа 07.10"
 
 
-def test_build_timeline(family: Family) -> None:
+def test_build_calendar(family: Family) -> None:
     events = [
         _e(
             1,
@@ -56,39 +56,20 @@ def test_build_timeline(family: Family) -> None:
         _e(6, text="Минуле", starts_at="2026-09-05T10:00:00Z"),  # over: not on the page
         _e(7, text="Скасоване", starts_at="2026-09-11T10:00:00Z", status="cancelled"),
     ]
-    todos = [
-        _c(1, text="Квіти", owner="anna", due="2026-09-11"),  # tomorrow
-        _c(2, text="Проспали", due="2026-09-09"),  # yesterday: overdue
-        _c(3, text="Сьогодні", due="2026-09-10"),
-        _c(4, text="Було давно", due="2026-09-01"),  # overdue, and first: the oldest deadline
-        _c(5, text="Далі", due="2026-09-14"),
-        _c(6, text="Без дати", owner="oleh"),
-        _c(7, text="Закрите", status="done"),
-    ]
     reminders = [
         _r(1, text="Квіти о 9", who="anna", at="2026-09-11T05:00:00Z"),  # tomorrow 08:00
         _r(2, text="Давно", at="2026-09-01T05:00:00Z"),  # pending but past: today
         _r(3, text="Надіслане", at="2026-09-11T05:00:00Z", status="sent"),
     ]
-    t = build_timeline(events, todos, reminders, NOW, family)
+    days = build_calendar(events, reminders, NOW, family)
 
-    assert [(r.id, r.note) for r in t.overdue] == [(4, "до 01.09"), (2, "до 09.09")]
-    assert t.overdue[1].ics_url == "/todos/2.ics" and t.overdue[1].time == ""
-    assert [(r.id, r.note, r.who) for r in t.dated] == [
-        (3, "сьогодні", ""),
-        (1, "завтра", "Анна"),
-        (5, "до 14.09", ""),
-    ]
-    assert [g.name for g in t.undated] == [""]  # no projects: one unnamed group
-    assert [(r.id, r.who, r.ics_url) for r in t.undated[0].rows] == [(6, "Олег", None)]
-
-    assert [d.title for d in t.days] == [
+    assert [d.title for d in days] == [
         "Сьогодні, четвер 10.09",
         "Завтра, п'ятниця 11.09",
         "Субота 12.09",
         "Середа 07.10",
     ]
-    today, tomorrow, saturday, october = t.days
+    today, tomorrow, saturday, october = days
     assert [(r.kind, r.id, r.time, r.note) for r in today.rows] == [
         ("event", 3, "весь день", "до 19.09"),
         ("reminder", 2, "08:00", ""),
@@ -105,13 +86,37 @@ def test_build_timeline(family: Family) -> None:
     assert [(r.kind, r.id, r.time) for r in october.rows] == [("event", 5, "15:30")]
 
 
-def test_empty_timeline_keeps_today(family: Family) -> None:
-    t = build_timeline([], [], [], NOW, family)
+def test_build_todo_lists(family: Family) -> None:
+    todos = [
+        _c(1, text="Квіти", owner="anna", due="2026-09-11"),  # tomorrow
+        _c(2, text="Проспали", due="2026-09-09"),  # yesterday: overdue
+        _c(3, text="Сьогодні", due="2026-09-10"),
+        _c(4, text="Було давно", due="2026-09-01"),  # overdue, and first: the oldest deadline
+        _c(5, text="Далі", due="2026-09-14"),
+        _c(6, text="Без дати", owner="oleh"),
+        _c(7, text="Закрите", status="done"),
+    ]
+    t = build_todo_lists(todos, NOW, family)
+
+    assert [(r.id, r.note) for r in t.overdue] == [(4, "до 01.09"), (2, "до 09.09")]
+    assert t.overdue[1].ics_url == "/todos/2.ics" and t.overdue[1].time == ""
+    assert [(r.id, r.note, r.who) for r in t.dated] == [
+        (3, "сьогодні", ""),
+        (1, "завтра", "Анна"),
+        (5, "до 14.09", ""),
+    ]
+    assert [g.name for g in t.undated] == [""]  # no projects: one unnamed group
+    assert [(r.id, r.who, r.ics_url) for r in t.undated[0].rows] == [(6, "Олег", None)]
+
+
+def test_empty_lists_and_calendar_keep_today(family: Family) -> None:
+    t = build_todo_lists([], NOW, family)
     assert t.overdue == [] and t.dated == [] and t.undated == [Group("", [])]
-    assert [(d.title, d.rows) for d in t.days] == [("Сьогодні, четвер 10.09", [])]
+    days = build_calendar([], [], NOW, family)
+    assert [(d.title, d.rows) for d in days] == [("Сьогодні, четвер 10.09", [])]
 
 
-def test_web_home_is_a_timeline(
+def test_web_home_and_calendar(
     db: Database, family: Family, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     freeze_web_clock(monkeypatch, NOW)
@@ -144,23 +149,31 @@ def test_web_home_is_a_timeline(
     db.close_todo(done, "done")
     client = TestClient(build_web(_settings(), family, db))
 
-    home = html.unescape(client.get("/", headers=_auth()).text)  # «п'ятниця» is escaped
+    home = client.get("/", headers=_auth()).text
     assert home.index('<h2 class="overdue">Прострочено</h2>') < home.index("Купити квіти")
     assert "· до 09.09 · Анна" in home
-    assert home.index("Буріння") < home.index("Прострочено")  # the calendar, then the todos
     assert "<h2>З дедлайном</h2>" not in home  # nothing due from today on
-    assert home.index("Сьогодні, четвер 10.09") < home.index("Завтра, п'ятниця 11.09")
-    assert home.index("Завтра") < home.index("14:30</span>") < home.index("15:30</span>")
-    assert "Стоматолог <a" in home and "· до 16:30 · Анна" in home
-    assert '<span class="mark">⏰</span>Стоматолог о 15:30' in home and "усім" in home
-    assert '<li class="event" data-id="1">' in home and 'href="/events/1.ics"' in home
-    assert 'class="time allday">весь день</span>' in home  # the all-day event on 15.09
+    assert "Буріння" not in home and "Стоматолог" not in home  # the calendar's, not here
+    assert home.index("<h2>Не забути</h2>") < home.index("Прострочено")  # the boards first
     assert home.index("<h2>Інше</h2>") < home.index(">Подзвонити газовику Петру</span>")
     assert 'class="id"' not in home  # database ids are not for people
     tail = home[home.index("<h2>Зроблено</h2>") :]  # the last done ones, at the very bottom
     assert home.index("<h2>Інше</h2>") < home.index("<h2>Зроблено</h2>")
     assert "✓</span>Замовити воду" in tail and "· Анна ·" in tail
     assert "Замовити воду" not in home[: home.index("<h2>Зроблено</h2>")]
+
+    # The calendar is its own page: events and pending reminders by day, no todos.
+    page = html.unescape(client.get("/calendar", headers=_auth()).text)  # «п'ятниця» is escaped
+    assert 'class="current">Календар' in page
+    assert page.index("Сьогодні, четвер 10.09") < page.index("Завтра, п'ятниця 11.09")
+    assert page.index("Завтра") < page.index("14:30</span>") < page.index("15:30</span>")
+    assert "Стоматолог <a" in page and "· до 16:30 · Анна" in page
+    assert '<span class="mark">⏰</span>Стоматолог о 15:30' in page and "усім" in page
+    assert '<li class="event" data-id="1">' in page and 'href="/events/1.ics"' in page
+    assert 'class="time allday">весь день</span>' in page  # the all-day event on 15.09
+    assert page.index("Відпочиваємо :-)") < page.index("Завтра")  # nothing today, still listed
+    assert "Купити квіти" not in page and "Прострочено" not in page and "Зроблено" not in page
+    assert client.get("/calendar").status_code == 401
 
 
 def test_web_undated_order_by_dragging(
@@ -263,16 +276,16 @@ def test_web_home_boards_own_first(
     boards = head(client.get("/", headers=_auth()).text)
     assert boards.index("Олег") < boards.index("Анна")
 
-    # The second board, «Не забути», sits under the first and before the calendar.
+    # The second board, «Не забути», sits under the first and before the todos.
     db.save_remember_list("oleh", "Купити подарунок мамі.", "oleh")
     home = client.get("/", headers=_auth("anna")).text
-    first, second, calendar = (
+    first, second, todos = (
         home.index("<h2>На сьогодні</h2>"),
         home.index("<h2>Не забути</h2>"),
-        home.index("<h2>Сьогодні"),
+        home.index("<h2>Інше</h2>"),
     )
-    assert first < second < calendar
-    remember = home[second:calendar]
+    assert first < second < todos
+    remember = home[second:todos]
     assert remember.index("Анна") < remember.index("Олег")  # the viewer's own first
     assert "Купити подарунок мамі." in remember and remember.count("порожньо") == 1
 
@@ -281,10 +294,12 @@ def test_web_home_empty(db: Database, family: Family, monkeypatch: pytest.Monkey
     freeze_web_clock(monkeypatch, NOW)
     client = TestClient(build_web(_settings(), family, db))
     home = client.get("/", headers=_auth()).text
-    assert "Прострочено" not in home and "Завтра" not in home
-    assert "Відпочиваємо :-)" in home  # today, empty
+    assert "Прострочено" not in home and "<h2>Сьогодні" not in home
     assert home.count("нічого") == 1  # undated, empty
     assert "<h2>Зроблено</h2>" not in home
+    calendar = client.get("/calendar", headers=_auth()).text
+    assert "Відпочиваємо :-)" in calendar  # today, empty, is always there
+    assert calendar.count("<h2>") == 1
 
 
 def test_web_home_groups_undated_todos_by_project(

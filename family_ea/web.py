@@ -4,8 +4,9 @@ There is no password. `/web` in Telegram (and «Відкрити» under the dig
 a member a link to `/login?t=…`; opening it sets a long-lived signed cookie. Read-only except
 `/facts` and `/family`, the two things a human edits by hand, and three things about a
 todo, all through the db methods the LLM ops use: done («☐»), the text («✎») and the
-order of the undated ones (dragged), on the home page. Dreams (`/dreams`) and the notes
-page (`/notes`, the LLM's Markdown rendered, its source photos under it) are only read.
+order of the undated ones (dragged), on the home page. The calendar (`/calendar`), dreams
+(`/dreams`) and the notes page (`/notes`, the LLM's Markdown rendered, its source photos
+under it) are only read.
 
 `/chat` exists only when `build_web` gets a pipeline, which `python -m family_ea web` does
 on the laptop: a message typed there goes through the very pipeline the bot runs, as the
@@ -32,7 +33,8 @@ from .auth import SESSION_TTL, sign, verify
 from .config import Settings
 from .context import (
     board_blocks,
-    build_timeline,
+    build_calendar,
+    build_todo_lists,
     fmt_date,
     fmt_dt,
     fmt_due,
@@ -155,8 +157,9 @@ def build_web(
     async def index(
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
-        """The boards (the viewer's own first), the timeline, the last done todos;
-        `?q=` searches instead: events, todos, items, and the sections of the notes page."""
+        """The boards (the viewer's own first), the todos (overdue, with a deadline, without
+        one by project), the last done ones; `?q=` searches instead: events, todos, items,
+        and the sections of the notes page."""
         if q and q.strip():
             q = q.strip()
             pattern = word_pattern(q)
@@ -176,25 +179,26 @@ def build_web(
                 },
             )
         now = datetime.now(settings.tz)
-        timeline = build_timeline(
-            db.planned_events(),
-            db.open_todos(),
-            db.pending_reminders(),
-            now,
-            family,
-            projects=db.open_projects(),
-        )
+        todos = build_todo_lists(db.open_todos(), now, family, projects=db.open_projects())
         return templates.TemplateResponse(
             request,
             "index.html",
             {
                 "q": "",
-                "timeline": timeline,
+                "todos": todos,
                 "today": board_blocks(db.current_today_lists(), family, member.id, now),
                 "remember": board_blocks(db.current_remember_lists(), family, member.id, now),
                 "done": db.recent_done_todos(DONE_SHOWN),
             },
         )
+
+    @app.get("/calendar", response_class=HTMLResponse, dependencies=[Depends(authed)])
+    async def calendar_page(request: Request) -> HTMLResponse:
+        """The days ahead with a planned event or a pending reminder, today always (empty
+        or not). Read-only: events and reminders are made and moved in the chat."""
+        now = datetime.now(settings.tz)
+        days = build_calendar(db.planned_events(), db.pending_reminders(), now, family)
+        return templates.TemplateResponse(request, "calendar.html", {"days": days})
 
     @app.get("/items", response_class=HTMLResponse, dependencies=[Depends(authed)])
     async def items_page(

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Календар{% endblock %}
+{% block body %}
+{# planned events and pending reminders by day: a day is listed only when it has rows,
+   except today, which is always there; nothing here writes, the chat moves things #}
+{% for day in days %}
+<h2>{{ day.title }}</h2>
+<ul class="rows dated">
+  {% for r in day.rows %}{% include "_row.html" %}{% else %}<li class="empty">Відпочиваємо :-)</li>{% endfor %}
+</ul>
+{% endfor %}
+{% endblock %}
