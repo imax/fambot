@@ -74,7 +74,13 @@ class Pipeline:
             self.db.add_attachment(message_id, sha, photo.media_type, len(photo.data))
         now = datetime.now(self.tz)
         context = build_context(
-            self.db, self.family, now, author, text, with_photo=photo is not None
+            self.db,
+            self.family,
+            now,
+            author,
+            text,
+            with_photo=photo is not None,
+            is_voice=is_voice,
         )
 
         try:

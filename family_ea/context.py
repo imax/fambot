@@ -594,11 +594,15 @@ def _message_line(msg: Message, family: Family, tz: ZoneInfo) -> str:
     return f"[{when}] {who}{kind}: {msg.raw_text}"
 
 
-def _incoming_line(author: Member, text: str, with_photo: bool) -> str:
+def _incoming_line(author: Member, text: str, with_photo: bool, is_voice: bool) -> str:
+    """Voice is said so: the prompt keeps typed words as they are and only tidies a
+    transcript, which is noisy."""
     who = f"від {author.id} ({author.name})"
     if with_photo:
         return f"{who}, з фото (підпис нижче):\n{text or '(без підпису)'}"
-    return f"{who}:\n{text}"
+    if is_voice:
+        return f"{who}, голосове (розпізнаний текст):\n{text}"
+    return f"{who}, текстом:\n{text}"
 
 
 def build_context(
@@ -609,6 +613,7 @@ def build_context(
     text: str,
     *,
     with_photo: bool = False,
+    is_voice: bool = False,
 ) -> str:
     """Assemble everything the LLM needs for one message. With a photo, `text` is its caption
     and the image itself is sent as a separate block before this text."""
@@ -691,6 +696,6 @@ def build_context(
             "Останні повідомлення",
             [_message_line(m, family, tz) for m in recent_messages],
         ),
-        section("Нове повідомлення", [_incoming_line(author, text, with_photo)]),
+        section("Нове повідомлення", [_incoming_line(author, text, with_photo, is_voice)]),
     ]
     return "\n\n".join(parts)

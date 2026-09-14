@@ -102,13 +102,13 @@
   <a href="/notes"{% if path.startswith('/notes') %} class="current"{% endif %}>Нотатки</a>
   <a href="/items"{% if path.startswith('/items') %} class="current"{% endif %}>Речі</a>
   <a href="/dreams"{% if path.startswith('/dreams') %} class="current"{% endif %}>Мрії</a>
-  {% if chat_enabled %}<a href="/chat"{% if path.startswith('/chat') %} class="current"{% endif %}>Чат</a>{% endif %}
   <details class="admin">
     <summary>Адмін</summary>
     <div>
       <a href="/facts">Факти</a>
       <a href="/family">Користувачі</a>
       <a href="/messages">Повідомлення</a>
+      {% if chat_enabled %}<a href="/chat">Чат</a>{% endif %}
     </div>
   </details>
   <form method="get" action="/"><input type="search" name="q" value="{{ q or '' }}" placeholder="пошук"></form>

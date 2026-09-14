@@ -139,6 +139,9 @@ def test_context_shows_today_boards(
     db.save_remember_list("anna", "Купити подарунок мамі.", "anna")
     now = datetime(2026, 9, 10, 8, 0, tzinfo=KYIV)
     ctx = build_context(db, family, now, oleh, "привіт")
+    assert ctx.endswith("## Нове повідомлення\nвід oleh (Олег), текстом:\nпривіт")
+    spoken = build_context(db, family, now, oleh, "привіт", is_voice=True)
+    assert spoken.endswith("від oleh (Олег), голосове (розпізнаний текст):\nпривіт")
     assert (
         "## Списки на сьогодні (today: дошка кожного, змінюється лише на явне прохання)\n"
         "- oleh (Олег), оновлено 10.09 08:12:\n  сходити на НП\n  планка\n"
@@ -208,4 +211,4 @@ def test_build_context_sections(
     ctx2 = build_context(db, family, now, oleh, "Де ключі від офісу?")
     assert "## Речі, схожі на повідомлення\n- [#2] Ключі від офісу → офіс / сейф; запасні" in ctx2
     assert "[09.09 15:00] бот → Олег: Записав." in ctx
-    assert ctx.rstrip().endswith("від oleh (Олег):\nХто ремонтував котел?")
+    assert ctx.rstrip().endswith("від oleh (Олег), текстом:\nХто ремонтував котел?")
