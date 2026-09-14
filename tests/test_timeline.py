@@ -308,25 +308,42 @@ def test_web_home_groups_undated_todos_by_project(
     client = TestClient(build_web(_settings(), family, db))
     page = client.get("/", headers=_auth()).text
     undated = page[page.index("<h2>Без дати</h2>") : page.index("<script>")]
-    heads = [
-        h for h in ("Калинівка", "Авто", "Документи", "Без проєкту") if f"<h3>{h}</h3>" in undated
-    ]
+    heads = [h for h in ("Калинівка", "Авто", "Документи", "Без проєкту") if f"<h3>{h}" in undated]
     assert heads == ["Калинівка", "Авто", "Документи", "Без проєкту"]
-    assert [undated.index(f"<h3>{h}</h3>") for h in heads] == sorted(
-        undated.index(f"<h3>{h}</h3>") for h in heads
+    assert [undated.index(f"<h3>{h}") for h in heads] == sorted(
+        undated.index(f"<h3>{h}") for h in heads
     )
     assert undated.index("Свердловина") < undated.index("Інструкція")  # newest first, unplaced
-    assert (
-        undated.index("<h3>Авто</h3>") < undated.index("XC90") < undated.index("<h3>Документи</h3>")
-    )
+    assert undated.index("<h3>Авто") < undated.index("XC90") < undated.index("<h3>Документи")
     assert undated.count("нічого") == 1  # Документи has no undated todo
     assert undated.count('class="rows sortable"') == 1  # only Калинівка has two rows
     dated = page[page.index("<h2>З дедлайном</h2>") : page.index("<h2>Без дати</h2>")]
     assert "Віза" in dated and "· Документи" in dated
 
+    # «↑» «↓» on the headings: the first has only «↓», the last only «↑»; a post reorders.
+    home_head = undated[undated.index("<h3>Калинівка") : undated.index("<h3>Авто")]
+    assert 'value="1"' in home_head and 'value="-1"' not in home_head
+    docs_head = undated[undated.index("<h3>Документи") : undated.index("<h3>Без проєкту")]
+    assert 'value="-1"' in docs_head and 'value="1"' not in docs_head
+    assert "form" not in undated[undated.index("<h3>Без проєкту") :].split("</h3>")[0]
+    r = client.post(
+        f"/projects/{car}/move", data={"step": "-1"}, headers=_auth(), follow_redirects=False
+    )
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    assert [p.id for p in db.open_projects()] == [car, home, empty]
+    assert (
+        client.post(f"/projects/{car}/move", data={"step": "-1"}, headers=_auth()).status_code
+        == 404
+    )
+    assert (
+        client.post(f"/projects/{car}/move", data={"step": "2"}, headers=_auth()).status_code == 400
+    )
+    page = client.get("/", headers=_auth()).text
+    assert page.index("<h3>Авто") < page.index("<h3>Калинівка")
+
     db.close_project(car)
     page = client.get("/", headers=_auth()).text
-    assert "<h3>Авто</h3>" not in page
+    assert "<h3>Авто" not in page
     rest = page[page.index("<h3>Без проєкту</h3>") :]
     assert "XC90" in rest  # detached
 

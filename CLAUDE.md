@@ -80,7 +80,8 @@ family_ea/
                 GET /files.json (bearer; what `pull` mirrors), GET/POST /facts, GET/POST
                 /family, GET /messages, GET /events/:id.ics, GET /todos/:id.ics,
                 POST /todos/:id/done and /todos/:id/text (a tap on the home
-                page), POST /todos/order (the undated list after a drag), GET /backup.db
+                page), POST /todos/order (the undated list after a drag), POST
+                /projects/:id/move («↑» «↓» on the home page), GET /backup.db
                 (bearer token); GET/POST /chat only when built with a pipeline (`web`
                 on the laptop): the pipeline from the browser, never in production
   main.py       serve() runs bot + uvicorn in one loop; chat() REPL; pull(); backup(); show_log()
@@ -123,8 +124,10 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   person names it (`TodoOp.project`, an id or a name from the context, `-` clears); a name
   that matches no open project fails the op (`ops.OpError`), it never guesses or creates.
   The web shows the undated todos as a list per project, dragged within the list; moving
-  a todo between projects is the chat's job. Closing a project detaches its open todos.
-  The digest does not mention projects.
+  a todo between projects is the chat's job. The order of the projects is set on the web
+  («↑» «↓» on the heading, `projects.position`, `db.move_project`), the one thing about a
+  project the web writes. Closing a project detaches its open todos. The digest does not
+  mention projects.
 - **A dream is a shared list entry with an author, not a todo without a date.** `dreams`
   (2026-09-13): text, who dreamt it up (`created_by`, shown to both), open / fulfilled /
   dropped; no owner, no date anywhere (not on the page, not in `dreams.md`), never

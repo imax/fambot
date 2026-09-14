@@ -384,11 +384,14 @@ class Day:
 
 @dataclass
 class Group:
-    """The undated todos of one project, in the hand-set order; `name` '' for the ones
-    without a project."""
+    """The undated todos of one project, in the hand-set order; `name` '' and `project_id`
+    None for the ones without a project. `first` / `last`: which of «↑» «↓» to show."""
 
     name: str
     rows: list[Row] = field(default_factory=list)
+    project_id: int | None = None
+    first: bool = True
+    last: bool = True
 
 
 @dataclass
@@ -523,7 +526,10 @@ def build_timeline(
     t.dated = [row for _, row in sorted(dated, key=lambda pair: pair[0])]
     # A todo of a closed project would have been detached; one of an unknown project (never
     # the case) falls in with the ones without.
-    t.undated = [Group(p.name, groups.pop(p.id, [])) for p in projects]
+    t.undated = [
+        Group(p.name, groups.pop(p.id, []), p.id, first=n == 0, last=n == len(projects) - 1)
+        for n, p in enumerate(projects)
+    ]
     rest = [row for pid, rows in groups.items() for row in rows]
     t.undated.append(Group("", rest))
     return t

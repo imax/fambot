@@ -38,7 +38,15 @@
    Two or more rows: a «⋮⋮» handle on each; drag to set the order, it is saved for everyone #}
 {% set ns = namespace(sortable=false) %}
 {% for g in timeline.undated %}
-{% if g.name or timeline.undated | length > 1 %}<h3>{{ g.name or "Без проєкту" }}</h3>{% endif %}
+{% if g.name %}
+<h3>{{ g.name }}
+  {# «↑» «↓» reorder the projects, for everyone; a project at an end has one arrow #}
+  <form class="move" method="post" action="/projects/{{ g.project_id }}/move">
+    {% if not g.first %}<button name="step" value="-1" title="Вище">↑</button>{% endif %}
+    {% if not g.last %}<button name="step" value="1" title="Нижче">↓</button>{% endif %}
+  </form>
+</h3>
+{% elif timeline.undated | length > 1 %}<h3>Без проєкту</h3>{% endif %}
 {% set sortable = g.rows | length > 1 %}
 {% if sortable %}{% set ns.sortable = true %}{% endif %}
 <ul class="rows{% if sortable %} sortable{% endif %}">
