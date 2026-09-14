@@ -12,7 +12,7 @@ A voice message to the bot from the web: «🎙» in the nav records, `POST /sen
 transcribes the recording like a Telegram voice message and runs the very pipeline the
 bot runs, as the logged-in member; the page shows the reply and reloads, so the change
 is in the lists at once. Nothing goes to Telegram, and there is no text box: typing
-belongs to Telegram (2026-09-14, Max's call). `/chat` (the member's chat with what the
+belongs to Telegram (2026-09-14). `/chat` (the member's chat with what the
 LLM did under each message, and a text form) exists only with `dev_chat`, which
 `python -m family_ea web` sets on the laptop; production has no chat page.
 """
