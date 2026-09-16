@@ -57,7 +57,7 @@ log = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 SESSION_COOKIE = "session"
-DONE_SHOWN = 10  # the «Зроблено» tail of the home page
+DONE_SHOWN = 5  # the «Зроблено» tail of the home page; search (?q=) finds every done todo
 CHAT_SHOWN = 30  # the tail of the member's chat on /chat
 SHA256 = re.compile(r"[0-9a-f]{64}")
 # What a browser's MediaRecorder produces (Chrome and Firefox: webm; Safari: mp4), by the
