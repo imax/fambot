@@ -22,11 +22,6 @@ PAST_EVENT_DAYS = 7  # ended events stay in the LLM context this long ("коли
 ALL_DAY = "весь день"  # the calendar's label where a time would be
 DEFAULT_EVENT_DURATION = timedelta(hours=1)
 WEEKDAYS_UK = ("понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота", "неділя")
-WEEKDAYS_SHORT_UK = ("пн", "вт", "ср", "чт", "пт", "сб", "нд")
-MONTHS_UK = (
-    "січень", "лютий", "березень", "квітень", "травень", "червень",
-    "липень", "серпень", "вересень", "жовтень", "листопад", "грудень",
-)  # fmt: skip
 
 
 # --- dates -------------------------------------------------------------------
@@ -385,18 +380,13 @@ class Row:
 
 @dataclass
 class Day:
-    """One day of the agenda on the web home: a block with the day's number and short
-    weekday on the left, its rows on the right; `month` names the month on the first day
-    of a new one (the number alone would not say). `title` is the full form ('Сьогодні,
-    четвер 10.09')."""
+    """One day of the agenda on the web home: its heading ('Сьогодні, четвер 10.09',
+    marked when today) and its rows."""
 
     when: date
     title: str
     rows: list[Row] = field(default_factory=list)
-    num: str = ""  # '7', '25'
-    wd: str = ""  # 'ср'
     today: bool = False
-    month: str = ""  # 'жовтень' when the month turned since the day before; else ''
 
 
 @dataclass
@@ -510,21 +500,15 @@ def build_calendar(
         )
         place(max(at.date(), today), (1, at.timestamp(), 1, r.id), row)
 
-    days = []
-    for day in sorted(by_day):
-        turned = days and day.month != days[-1].when.month
-        days.append(
-            Day(
-                day,
-                day_title(day, today),
-                [row for _, row in sorted(by_day[day], key=lambda p: p[0])],
-                num=str(day.day),
-                wd=WEEKDAYS_SHORT_UK[day.weekday()],
-                today=day == today,
-                month=MONTHS_UK[day.month - 1] if turned else "",
-            )
+    return [
+        Day(
+            day,
+            day_title(day, today),
+            [row for _, row in sorted(by_day[day], key=lambda p: p[0])],
+            today=day == today,
         )
-    return days
+        for day in sorted(by_day)
+    ]
 
 
 def build_todo_lists(

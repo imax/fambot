@@ -70,13 +70,7 @@ def test_build_calendar(family: Family) -> None:
         "Субота 12.09",
         "Середа 07.10",
     ]
-    # the day blocks: number, short weekday, today, and the month named when it turns
-    assert [(d.num, d.wd, d.today, d.month) for d in days] == [
-        ("10", "чт", True, ""),
-        ("11", "пт", False, ""),
-        ("12", "сб", False, ""),
-        ("7", "ср", False, "жовтень"),
-    ]
+    assert [d.today for d in days] == [True, False, False, False]
     today, tomorrow, saturday, october = days
     assert [(r.kind, r.id, r.time, r.note) for r in today.rows] == [
         ("event", 3, "весь день", "до 19.09"),
@@ -121,9 +115,7 @@ def test_empty_lists_and_calendar_keep_today(family: Family) -> None:
     t = build_todo_lists([], NOW, family)
     assert t.overdue == [] and t.dated == [] and t.undated == [Group("", [])]
     days = build_calendar([], [], NOW, family)
-    assert [(d.title, d.rows, d.today, d.month) for d in days] == [
-        ("Сьогодні, четвер 10.09", [], True, "")
-    ]
+    assert [(d.title, d.rows, d.today) for d in days] == [("Сьогодні, четвер 10.09", [], True)]
 
 
 def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -168,21 +160,20 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
         < home.index("Прострочено")
     )
 
-    # The agenda: a block per day with a planned event or a pending reminder, today always,
-    # the day's number and short weekday on the left; no todos, no owner, no «весь день».
+    # The agenda: a heading per day with a planned event or a pending reminder, today
+    # always and marked; the time on the right, the end small under it; no todos, no owner,
+    # no «весь день».
     agenda = home[home.index("<h2>Календар</h2>") : home.index("Прострочено")]
-    assert '<div class="day now">' in agenda and "<small>чт</small><b>10</b>" in agenda
-    assert agenda.index("<b>10</b>") < agenda.index(
-        "Відпочиваємо :-)"
-    )  # nothing today, still listed
-    assert agenda.index("Відпочиваємо") < agenda.index("<small>пт</small><b>11</b>")
-    assert agenda.index("<b>11</b>") < agenda.index("14:30</span>") < agenda.index("15:30</span>")
-    assert "Стоматолог<a" in agenda and "до 16:30" not in agenda and "Анна" not in agenda
+    assert '<h3 class="now">Сьогодні, четвер 10.09</h3>' in agenda
+    assert agenda.index("Сьогодні") < agenda.index("Відпочиваємо :-)")  # empty today, listed
+    assert agenda.index("Відпочиваємо") < agenda.index("<h3>Завтра, п'ятниця 11.09</h3>")
+    assert agenda.index("<h3>Завтра") < agenda.index("14:30</span>") < agenda.index("15:30<small>")
+    assert "Стоматолог<a" in agenda and "<small>до 16:30</small>" in agenda and "Анна" not in agenda
     assert '<span class="mark">⏰</span>Стоматолог о 15:30' in agenda and "усім" not in agenda
     assert '<li class="event" data-id="1">' in agenda and 'href="/events/1.ics"' in agenda
-    assert "<small>вт</small><b>15</b>" in agenda and "весь день" not in agenda  # all-day: 15.09
-    assert re.search(r'<span class="time"></span>\s*<span>Буріння', agenda)  # an empty time cell
-    assert "Купити квіти" not in agenda and "Сьогодні, четвер" not in agenda
+    assert "<h3>Вівторок 15.09</h3>" in agenda and "весь день" not in agenda  # all-day: 15.09
+    assert re.search(r'Буріння<a[^\n]*\n\s*<span class="time"></span>', agenda)  # no time
+    assert "Купити квіти" not in agenda
     assert "Стоматолог" not in home[home.index("Прострочено") :]
     assert home.index("<h2>Без дати</h2>") < home.index(">Подзвонити газовику Петру</span>")
     assert 'class="id"' not in home  # database ids are not for people
@@ -309,7 +300,7 @@ def test_web_home_empty(db: Database, family: Family, monkeypatch: pytest.Monkey
     assert home.count("нічого") == 1  # undated, empty
     assert "<h2>Зроблено</h2>" not in home
     assert "Відпочиваємо :-)" in home  # today, empty, is always there
-    assert home.count('<div class="day') == 1
+    assert home.count("<h3") == 1
 
 
 def test_web_home_groups_undated_todos_by_project(

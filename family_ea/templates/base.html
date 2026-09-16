@@ -43,19 +43,14 @@
   .ical { text-decoration: none; margin-left: .4rem; }
   h2.overdue { color: #b33; }
   .time { color: #444; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  /* the agenda: a block per day, the number and short weekday on the left (today in a
-     dark circle), the rows on the right in a fixed time column; the month named when it
-     turns; nothing but the time and the text, the rest is on the .ics and in the chat */
-  .agenda .month { color: #777; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
-                   padding: .6rem 0 .1rem; border-bottom: 1px solid #f0f0f0; }
-  .agenda .day { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr); column-gap: .7rem; padding: .4rem 0;
-                 border-bottom: 1px solid #f0f0f0; }
-  .agenda .num { text-align: center; line-height: 1.1; padding-top: .1rem; }
-  .agenda .num small { display: block; font-size: .65rem; color: #777; text-transform: uppercase; letter-spacing: .04em; }
-  .agenda .num b { display: inline-block; font-size: 1.2rem; min-width: 1.7rem; line-height: 1.7rem; border-radius: 50%; }
-  .agenda .now .num b { background: #222; color: #fff; }
-  .agenda .now .num small { color: #222; font-weight: 600; }
-  .agenda li { display: grid; grid-template-columns: 3rem minmax(0, 1fr); column-gap: .5rem; padding: .1rem 0; border: 0; }
+  /* the agenda: a heading per day (today marked), the rows under it with the text on the
+     left and the time on the right, its end small and grey under it; tighter than the h2
+     sections around it, the days are many */
+  .agenda h3 { font-size: .95rem; margin: .9rem 0 0; padding-bottom: .15rem; color: #222; border-bottom: 1px solid #eee; }
+  .agenda h3.now { color: #b33; }
+  .agenda li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: .8rem; padding: .3rem 0; }
+  .agenda .time { text-align: right; }
+  .agenda .time small { display: block; color: #999; font-size: .8rem; line-height: 1.2; }
   .agenda li.empty { display: block; }
   .mark { margin-right: .25rem; }
   .reminder, .reminder .time { color: #888; }
