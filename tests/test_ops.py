@@ -188,6 +188,7 @@ def test_apply_item_ops(db: Database, family: Family) -> None:
     ]
     iid = applied[0].id or 0
     assert db.get_item(iid).name == "Паспорт Олі"
+    assert db.get_item(iid).place == "Офіс"  # a place is written with a capital
 
     r2 = LlmResult.model_validate(
         {
@@ -195,7 +196,7 @@ def test_apply_item_ops(db: Database, family: Family) -> None:
             "items": [
                 {"op": "update", "id": iid, "place": "квартира"},  # the spot goes with the place
                 {"op": "update", "id": iid},  # «ось ще фото»: a hit, the file lands under it
-                {"op": "update", "id": iid, "place": "квартира"},  # nothing new
+                {"op": "update", "id": iid, "place": "Квартира"},  # nothing new: one spelling
                 {"op": "update", "id": iid, "name": "", "owner": " "},  # blanks mean «not given»
                 {"op": "remove", "id": iid},
                 {"op": "remove", "id": iid},
@@ -214,7 +215,7 @@ def test_apply_item_ops(db: Database, family: Family) -> None:
         (False, "not found or already gone"),
     ]
     item = db.get_item(iid)
-    assert item and item.place == "квартира" and item.spot is None and item.owner == "Оля"
+    assert item and item.place == "Квартира" and item.spot is None and item.owner == "Оля"
     assert item.name == "Паспорт Олі" and item.removed_at
 
 

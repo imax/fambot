@@ -126,9 +126,17 @@ def _item_fields(i: ItemOp) -> tuple[dict, list[str]]:
         given, value = _given(getattr(i, field))
         if given:
             fields[field] = value
+    if fields.get("place"):
+        fields["place"] = capitalized(str(fields["place"]))  # «Офіс», one spelling per place
     if "place" in fields and "spot" not in fields:
         fields["spot"] = None
     return fields, notes
+
+
+def capitalized(text: str) -> str:
+    """The first letter upper-case, the rest as given: a place is a proper name («Офіс»,
+    «Калинівка»), and one spelling keeps the places list on the web to one row each."""
+    return text[:1].upper() + text[1:]
 
 
 class OpError(Exception):

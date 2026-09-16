@@ -417,6 +417,16 @@ def day_title(d: date, today: date) -> str:
     return f"{name.capitalize()} {d:%d.%m}"
 
 
+def nudge_note(day: date, today: date) -> str:
+    """When the bot brings a todo up: 'завтра', 'сьогодні' (before noon, or missed),
+    '19.09'; a day already past shows as 'сьогодні' too, the job sends it at the next noon."""
+    if day <= today:
+        return "сьогодні"
+    if day == today + timedelta(days=1):
+        return "завтра"
+    return f"{day:%d.%m}"
+
+
 def due_note(due: date, today: date) -> str:
     """A todo's deadline next to its text: 'сьогодні', 'завтра', else 'до 19.09'."""
     if due == today:
@@ -517,7 +527,12 @@ def build_todo_lists(
             continue
         who = family.display_name(td.owner) if td.owner else ""
         if not td.due:
-            groups.setdefault(td.project_id, []).append(Row("todo", td.id, td.text, who=who))
+            note = (
+                f"🔔 {nudge_note(date.fromisoformat(td.remind_on), today)}" if td.remind_on else ""
+            )
+            groups.setdefault(td.project_id, []).append(
+                Row("todo", td.id, td.text, note=note, who=who)
+            )
             continue
         due = date.fromisoformat(td.due)
         late = due < today

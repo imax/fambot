@@ -102,6 +102,23 @@ def test_projects_are_ordered_by_hand(db: Database) -> None:
     assert [p.id for p in db.open_projects()] == [d, b, c]  # b kept its position
 
 
+def test_old_places_get_a_capital(tmp_path: Path) -> None:
+    """Places written before 2026-09-16 («офіс») are capitalized at start, once, without a
+    history row; a place that already has one is left alone."""
+    path = tmp_path / "old.db"
+    db = Database(path)
+    mid = db.insert_message("oleh", "oleh", "...")
+    kw = dict(owner=None, spot=None, note=None, created_by="oleh", source_message_id=mid)
+    a = db.create_item("Паспорт", place="офіс", **kw)  # type: ignore[arg-type]
+    b = db.create_item("Мерч", place="Калинівка", **kw)  # type: ignore[arg-type]
+    c = db.create_item("Коробка", place=None, **kw)  # type: ignore[arg-type]
+    db.close()
+    db = Database(path)
+    assert [db.get_item(i).place for i in (a, b, c)] == ["Офіс", "Калинівка", None]
+    assert [h.kind for h in db.item_history(a)] == ["created"]
+    db.close()
+
+
 def test_old_todos_get_the_project_column(tmp_path: Path) -> None:
     """A database from before 2026-09-14 has todos without `project_id`; the first start
     adds it."""

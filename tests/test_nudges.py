@@ -180,3 +180,26 @@ def test_the_buttons(db: Database) -> None:
     assert nudge_tap(db, f"todo:tomorrow:{t.id}", today) == ("Задача вже закрита.", None)
     assert nudge_tap(db, "todo:done:999", today) == ("Задача вже закрита.", None)
     assert db.get_todo(t.id).status == "done"
+
+
+def test_the_web_shows_the_nudge_to_come(
+    db: Database, family: Family, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from family_ea.web import build_web
+    from tests.test_web import _auth, _settings, freeze_web_clock
+
+    freeze_web_clock(monkeypatch, datetime(2026, 9, 16, 9, 0, tzinfo=KYIV))
+    soon = _new(db, "Клініки", "anna", "2026-09-17")
+    later = _new(db, "Віза", "oleh", "2026-09-25")
+    missed = _new(db, "Масаж", "oleh", "2026-09-15")
+    quiet = _new(db, "Тихо", "oleh", "2026-09-20")
+    db.update_todo(quiet.id, remind_on=None)
+    client = TestClient(build_web(_settings(), family, db))
+    page = client.get("/", headers=_auth()).text
+    row = lambda t: page[page.index(f'data-id="{t.id}"') :].split("</li>")[0]  # noqa: E731
+    assert "· 🔔 завтра · Анна" in row(soon)
+    assert "· 🔔 25.09 · Олег" in row(later)
+    assert "· 🔔 сьогодні · Олег" in row(missed)
+    assert "🔔" not in row(quiet)

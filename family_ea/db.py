@@ -511,6 +511,17 @@ class Database:
             # 2026-09-14, the same day, before the first deploy: projects are ordered by hand.
             self.conn.execute("ALTER TABLE projects ADD COLUMN position INTEGER")
             self.conn.commit()
+        # 2026-09-16: a place is spelled with a capital («Офіс»), ops capitalize new ones;
+        # the ones written before get it here (SQLite's upper() is ASCII-only, so Python).
+        # No item_history row: the place did not change, only its spelling.
+        rows = self.conn.execute(
+            "SELECT id, place FROM items WHERE place IS NOT NULL AND place != ''"
+        ).fetchall()
+        fixes = [(r["place"][:1].upper() + r["place"][1:], r["id"]) for r in rows]
+        fixes = [(p, i) for (p, i), r in zip(fixes, rows, strict=True) if p != r["place"]]
+        if fixes:
+            self.conn.executemany("UPDATE items SET place = ? WHERE id = ?", fixes)
+            self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
