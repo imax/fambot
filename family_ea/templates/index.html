@@ -13,6 +13,29 @@
   {% endfor %}
 </ul>
 {% endfor %}
+{# the agenda: every day with a planned event or a pending reminder, today always, as a
+   block with the day's number on the left and the rows on the right; the month is named
+   when it turns. Read-only: events and reminders are made and moved in the chat #}
+<h2>Календар</h2>
+<div class="agenda">
+{% for day in days %}
+{% if day.month %}<div class="month">{{ day.month }}</div>{% endif %}
+<div class="day{% if day.today %} now{% endif %}">
+  <div class="num"><small>{{ day.wd }}</small><b>{{ day.num }}</b></div>
+  <ul>
+    {% for r in day.rows %}
+    <li class="{{ r.kind }}" data-id="{{ r.id }}">
+      <span class="time">{% if not r.all_day %}{{ r.time }}{% endif %}</span>
+      <span>{% if r.kind == 'reminder' %}<span class="mark">⏰</span>{% endif %}{{ r.text }}
+        {%- if r.ics_url %}<a class="ical" href="{{ r.ics_url }}" title="в календар (.ics)">📅</a>{% endif %}</span>
+    </li>
+    {% else %}
+    <li class="empty">Відпочиваємо :-)</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endfor %}
+</div>
 {# the todos: past their deadline, with one, without one (drag «⋮⋮» to order these) #}
 {% if todos.overdue %}
 <h2 class="overdue">Прострочено</h2>

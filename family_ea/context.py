@@ -1,5 +1,5 @@
 """Deterministic context for the LLM, the event agenda, todo buckets, the digest,
-the web calendar and the todo lists of the web home.
+the agenda and the todo lists of the web home.
 
 Everything here is plain code: what is "today", what is "overdue", which items to
 show. The LLM only sees the result.
@@ -22,6 +22,11 @@ PAST_EVENT_DAYS = 7  # ended events stay in the LLM context this long ("коли
 ALL_DAY = "весь день"  # the calendar's label where a time would be
 DEFAULT_EVENT_DURATION = timedelta(hours=1)
 WEEKDAYS_UK = ("понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота", "неділя")
+WEEKDAYS_SHORT_UK = ("пн", "вт", "ср", "чт", "пт", "сб", "нд")
+MONTHS_UK = (
+    "січень", "лютий", "березень", "квітень", "травень", "червень",
+    "липень", "серпень", "вересень", "жовтень", "листопад", "грудень",
+)  # fmt: skip
 
 
 # --- dates -------------------------------------------------------------------
@@ -358,12 +363,12 @@ def digest_text(
     return "\n".join(lines)
 
 
-# --- the calendar and the todo lists (the web) ----------------------------------
+# --- the agenda and the todo lists (the web) ----------------------------------
 
 
 @dataclass(frozen=True)
 class Row:
-    """One line of the calendar or the home page, ready to render: a planned event, a
+    """One line of the web home (the agenda or a todo list), ready to render: a planned event, a
     pending reminder or an open todo. Everything is formatted here; the template only lays
     it out."""
 
@@ -380,9 +385,18 @@ class Row:
 
 @dataclass
 class Day:
+    """One day of the agenda on the web home: a block with the day's number and short
+    weekday on the left, its rows on the right; `month` names the month on the first day
+    of a new one (the number alone would not say). `title` is the full form ('Сьогодні,
+    четвер 10.09')."""
+
     when: date
     title: str
     rows: list[Row] = field(default_factory=list)
+    num: str = ""  # '7', '25'
+    wd: str = ""  # 'ср'
+    today: bool = False
+    month: str = ""  # 'жовтень' when the month turned since the day before; else ''
 
 
 @dataclass
@@ -400,7 +414,7 @@ class TodoLists:
     """The open todos on the web home: past their deadline, with a deadline from today on,
     and without one, in the hand-set order, a group per open project (in the order the
     projects were made) and the ones without a project last; one group with no name when
-    there are no projects. The calendar is its own page (`build_calendar`)."""
+    there are no projects. The agenda is `build_calendar`."""
 
     overdue: list[Row] = field(default_factory=list)
     dated: list[Row] = field(default_factory=list)
@@ -439,8 +453,8 @@ def due_note(due: date, today: date) -> str:
 def build_calendar(
     events: list[Event], reminders: list[Reminder], now: datetime, family: Family
 ) -> list[Day]:
-    """The calendar page: every day with a planned event or a pending reminder, today
-    always, even empty.
+    """The agenda on the web home: every day with a planned event or a pending reminder,
+    today always, even empty.
 
     A multi-day event still running sits on today with «до …»; a reminder whose time passed
     but is still pending (about to be sent) sits on today too. Within a day: all-day events,
@@ -496,10 +510,21 @@ def build_calendar(
         )
         place(max(at.date(), today), (1, at.timestamp(), 1, r.id), row)
 
-    return [
-        Day(day, day_title(day, today), [row for _, row in sorted(by_day[day], key=lambda p: p[0])])
-        for day in sorted(by_day)
-    ]
+    days = []
+    for day in sorted(by_day):
+        turned = days and day.month != days[-1].when.month
+        days.append(
+            Day(
+                day,
+                day_title(day, today),
+                [row for _, row in sorted(by_day[day], key=lambda p: p[0])],
+                num=str(day.day),
+                wd=WEEKDAYS_SHORT_UK[day.weekday()],
+                today=day == today,
+                month=MONTHS_UK[day.month - 1] if turned else "",
+            )
+        )
+    return days
 
 
 def build_todo_lists(

@@ -4,9 +4,9 @@ There is no password. `/web` in Telegram (and «Відкрити» under the dig
 a member a link to `/login?t=…`; opening it sets a long-lived signed cookie. Read-only except
 `/facts` and `/family`, the two things a human edits by hand, and three things about a
 todo, all through the db methods the LLM ops use: done («☐»), the text («✎») and the
-order of the undated ones (dragged), on the home page. The calendar (`/calendar`), dreams
-(`/dreams`) and the notes page (`/notes`, the LLM's Markdown rendered, its source photos
-under it) are only read.
+order of the undated ones (dragged), on the home page. The agenda on the home page (the
+days ahead), the dreams (`/dreams`) and the notes page (`/notes`, the LLM's Markdown
+rendered, its source photos under it) are only read.
 
 A voice message to the bot from the web: «🎙» in the nav records, `POST /send`
 transcribes the recording like a Telegram voice message and runs the very pipeline the
@@ -177,7 +177,8 @@ def build_web(
     async def index(
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
-        """The boards (the viewer's own first), the todos (overdue, with a deadline, without
+        """The boards (the viewer's own first), the agenda (the days ahead with an event or
+        a pending reminder, today always), the todos (overdue, with a deadline, without
         one by project), the last done ones; `?q=` searches instead: events, todos, items,
         and the sections of the notes page."""
         if q and q.strip():
@@ -205,19 +206,12 @@ def build_web(
             "index.html",
             {
                 "q": "",
+                "days": build_calendar(db.planned_events(), db.pending_reminders(), now, family),
                 "todos": todos,
                 "today": board_blocks(db.current_today_lists(), family, member.id, now),
                 "done": db.recent_done_todos(DONE_SHOWN),
             },
         )
-
-    @app.get("/calendar", response_class=HTMLResponse, dependencies=[Depends(authed)])
-    async def calendar_page(request: Request) -> HTMLResponse:
-        """The days ahead with a planned event or a pending reminder, today always (empty
-        or not). Read-only: events and reminders are made and moved in the chat."""
-        now = datetime.now(settings.tz)
-        days = build_calendar(db.planned_events(), db.pending_reminders(), now, family)
-        return templates.TemplateResponse(request, "calendar.html", {"days": days})
 
     @app.get("/items", response_class=HTMLResponse, dependencies=[Depends(authed)])
     async def items_page(

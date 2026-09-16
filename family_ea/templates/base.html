@@ -42,10 +42,21 @@
   .error { color: #b33; }
   .ical { text-decoration: none; margin-left: .4rem; }
   h2.overdue { color: #b33; }
-  .dated li { display: grid; grid-template-columns: 4.2rem minmax(0, 1fr); column-gap: .5rem; }
-  .dated .empty { display: block; }
   .time { color: #444; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .time.allday { color: #888; font-size: .85rem; }
+  /* the agenda: a block per day, the number and short weekday on the left (today in a
+     dark circle), the rows on the right in a fixed time column; the month named when it
+     turns; nothing but the time and the text, the rest is on the .ics and in the chat */
+  .agenda .month { color: #777; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
+                   padding: .6rem 0 .1rem; border-bottom: 1px solid #f0f0f0; }
+  .agenda .day { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr); column-gap: .7rem; padding: .4rem 0;
+                 border-bottom: 1px solid #f0f0f0; }
+  .agenda .num { text-align: center; line-height: 1.1; padding-top: .1rem; }
+  .agenda .num small { display: block; font-size: .65rem; color: #777; text-transform: uppercase; letter-spacing: .04em; }
+  .agenda .num b { display: inline-block; font-size: 1.2rem; min-width: 1.7rem; line-height: 1.7rem; border-radius: 50%; }
+  .agenda .now .num b { background: #222; color: #fff; }
+  .agenda .now .num small { color: #222; font-weight: 600; }
+  .agenda li { display: grid; grid-template-columns: 3rem minmax(0, 1fr); column-gap: .5rem; padding: .1rem 0; border: 0; }
+  .agenda li.empty { display: block; }
   .mark { margin-right: .25rem; }
   .reminder, .reminder .time { color: #888; }
   .rows .meta { display: inline; margin-left: .25rem; }
@@ -92,9 +103,9 @@
   /* With a mouse, the row tools and the project handle show up on hover (or when dragged);
      on a touch screen there is no hover, so they stay in view. */
   @media (hover: hover) and (pointer: fine) {
-    li.todo .tools, h2 .grip { opacity: 0; transition: opacity .1s; }
+    li.todo .tools, h2 .grip, .agenda .ical { opacity: 0; transition: opacity .1s; }
     li.todo:hover .tools, li.todo .tools:focus-within, li.dragging .tools,
-    h2:hover .grip, section.dragging h2 .grip { opacity: 1; }
+    h2:hover .grip, section.dragging h2 .grip, .agenda li:hover .ical { opacity: 1; }
   }
   .chat li { border: 0; padding: .4rem 0; }
   .chat .bubble { display: inline-block; max-width: 85%; padding: .4rem .7rem; border-radius: .7rem; white-space: pre-line; }
@@ -114,7 +125,6 @@
 {% set path = request.url.path %}
 <nav>
   <a href="/"{% if path == '/' and not q %} class="current"{% endif %}>Задачі</a>
-  <a href="/calendar"{% if path.startswith('/calendar') %} class="current"{% endif %}>Календар</a>
   <a href="/notes"{% if path.startswith('/notes') %} class="current"{% endif %}>Нотатки</a>
   <a href="/items"{% if path.startswith('/items') %} class="current"{% endif %}>Речі</a>
   <a href="/dreams"{% if path.startswith('/dreams') %} class="current"{% endif %}>Мрії</a>

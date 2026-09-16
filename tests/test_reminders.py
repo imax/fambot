@@ -1,6 +1,5 @@
 """Reminders: a message to someone at a given moment. Own table, own ops, a per-minute job."""
 
-import html
 from datetime import UTC, datetime
 
 import pytest
@@ -208,7 +207,7 @@ def test_web_lists_pending_reminders(
     )
     db.finish_reminder(2, "sent")
     client = TestClient(build_web(_settings(), family, db))
-    page = html.unescape(client.get("/calendar", headers=_auth()).text)
-    assert page.index("Завтра, п'ятниця 11.09") < page.index("15:00</span>")
-    assert "⏰</span>Зустріч з пані Марією о 16:00" in page and "усім" in page
+    page = client.get("/", headers=_auth()).text
+    assert page.index("<small>пт</small><b>11</b>") < page.index("15:00</span>")
+    assert "⏰</span>Зустріч з пані Марією о 16:00" in page
     assert "Квіти" not in page

@@ -255,10 +255,9 @@ def test_web_events(db: Database, family: Family) -> None:
     db.cancel_event(cancelled)
     client = TestClient(build_web(_settings(), family, db))
 
-    calendar = client.get("/calendar", headers=_auth())
-    assert "Стоматолог" in calendar.text and f'href="/events/{eid}.ics"' in calendar.text
-    assert "Скасоване" not in calendar.text
-    assert "Стоматолог" not in client.get("/", headers=_auth()).text  # events: the calendar's
+    home = client.get("/", headers=_auth())
+    assert "Стоматолог" in home.text and f'href="/events/{eid}.ics"' in home.text
+    assert "Скасоване" not in home.text
     search = client.get("/", params={"q": "скасован"}, headers=_auth())
     assert "Скасоване" in search.text and "status-cancelled" in search.text
 

@@ -1,6 +1,7 @@
-"""The web home (the boards, the todo lists) and the calendar page (events and reminders by day)."""
+"""The web home: the boards, the agenda (events and reminders by day) and the todo lists."""
 
 import html
+import re
 from datetime import date, datetime
 
 import pytest
@@ -69,6 +70,13 @@ def test_build_calendar(family: Family) -> None:
         "Субота 12.09",
         "Середа 07.10",
     ]
+    # the day blocks: number, short weekday, today, and the month named when it turns
+    assert [(d.num, d.wd, d.today, d.month) for d in days] == [
+        ("10", "чт", True, ""),
+        ("11", "пт", False, ""),
+        ("12", "сб", False, ""),
+        ("7", "ср", False, "жовтень"),
+    ]
     today, tomorrow, saturday, october = days
     assert [(r.kind, r.id, r.time, r.note) for r in today.rows] == [
         ("event", 3, "весь день", "до 19.09"),
@@ -113,12 +121,12 @@ def test_empty_lists_and_calendar_keep_today(family: Family) -> None:
     t = build_todo_lists([], NOW, family)
     assert t.overdue == [] and t.dated == [] and t.undated == [Group("", [])]
     days = build_calendar([], [], NOW, family)
-    assert [(d.title, d.rows) for d in days] == [("Сьогодні, четвер 10.09", [])]
+    assert [(d.title, d.rows, d.today, d.month) for d in days] == [
+        ("Сьогодні, четвер 10.09", [], True, "")
+    ]
 
 
-def test_web_home_and_calendar(
-    db: Database, family: Family, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch) -> None:
     freeze_web_clock(monkeypatch, NOW)
     mid = db.insert_message("oleh", "oleh", "...")
     db.create_event(
@@ -149,31 +157,42 @@ def test_web_home_and_calendar(
     db.close_todo(done, "done")
     client = TestClient(build_web(_settings(), family, db))
 
-    home = client.get("/", headers=_auth()).text
+    home = html.unescape(client.get("/", headers=_auth()).text)  # «п'ятниця» is escaped
     assert home.index('<h2 class="overdue">Прострочено</h2>') < home.index("Купити квіти")
     assert "· до 09.09 · Анна" in home
     assert "<h2>З дедлайном</h2>" not in home  # nothing due from today on
-    assert "Буріння" not in home and "Стоматолог" not in home  # the calendar's, not here
-    assert home.index("<h2>На сьогодні</h2>") < home.index("Прострочено")  # the board first
+    # the board first, then the agenda, then the todos
+    assert (
+        home.index("<h2>На сьогодні</h2>")
+        < home.index("<h2>Календар</h2>")
+        < home.index("Прострочено")
+    )
+
+    # The agenda: a block per day with a planned event or a pending reminder, today always,
+    # the day's number and short weekday on the left; no todos, no owner, no «весь день».
+    agenda = home[home.index("<h2>Календар</h2>") : home.index("Прострочено")]
+    assert '<div class="day now">' in agenda and "<small>чт</small><b>10</b>" in agenda
+    assert agenda.index("<b>10</b>") < agenda.index(
+        "Відпочиваємо :-)"
+    )  # nothing today, still listed
+    assert agenda.index("Відпочиваємо") < agenda.index("<small>пт</small><b>11</b>")
+    assert agenda.index("<b>11</b>") < agenda.index("14:30</span>") < agenda.index("15:30</span>")
+    assert "Стоматолог<a" in agenda and "до 16:30" not in agenda and "Анна" not in agenda
+    assert '<span class="mark">⏰</span>Стоматолог о 15:30' in agenda and "усім" not in agenda
+    assert '<li class="event" data-id="1">' in agenda and 'href="/events/1.ics"' in agenda
+    assert "<small>вт</small><b>15</b>" in agenda and "весь день" not in agenda  # all-day: 15.09
+    assert re.search(r'<span class="time"></span>\s*<span>Буріння', agenda)  # an empty time cell
+    assert "Купити квіти" not in agenda and "Сьогодні, четвер" not in agenda
+    assert "Стоматолог" not in home[home.index("Прострочено") :]
     assert home.index("<h2>Без дати</h2>") < home.index(">Подзвонити газовику Петру</span>")
     assert 'class="id"' not in home  # database ids are not for people
     tail = home[home.index("<h2>Зроблено</h2>") :]  # the last done ones, at the very bottom
     assert home.index("<h2>Без дати</h2>") < home.index("<h2>Зроблено</h2>")
     assert "✓</span>Замовити воду" in tail and "· Анна ·" in tail
     assert "Замовити воду" not in home[: home.index("<h2>Зроблено</h2>")]
-
-    # The calendar is its own page: events and pending reminders by day, no todos.
-    page = html.unescape(client.get("/calendar", headers=_auth()).text)  # «п'ятниця» is escaped
-    assert 'class="current">Календар' in page
-    assert page.index("Сьогодні, четвер 10.09") < page.index("Завтра, п'ятниця 11.09")
-    assert page.index("Завтра") < page.index("14:30</span>") < page.index("15:30</span>")
-    assert "Стоматолог <a" in page and "· до 16:30 · Анна" in page
-    assert '<span class="mark">⏰</span>Стоматолог о 15:30' in page and "усім" in page
-    assert '<li class="event" data-id="1">' in page and 'href="/events/1.ics"' in page
-    assert 'class="time allday">весь день</span>' in page  # the all-day event on 15.09
-    assert page.index("Відпочиваємо :-)") < page.index("Завтра")  # nothing today, still listed
-    assert "Купити квіти" not in page and "Прострочено" not in page and "Зроблено" not in page
-    assert client.get("/calendar").status_code == 401
+    assert (
+        client.get("/calendar", headers=_auth()).status_code == 404
+    )  # its own tab until 2026-09-16
 
 
 def test_web_undated_order_by_dragging(
@@ -289,9 +308,8 @@ def test_web_home_empty(db: Database, family: Family, monkeypatch: pytest.Monkey
     assert "Прострочено" not in home and "<h2>Сьогодні" not in home
     assert home.count("нічого") == 1  # undated, empty
     assert "<h2>Зроблено</h2>" not in home
-    calendar = client.get("/calendar", headers=_auth()).text
-    assert "Відпочиваємо :-)" in calendar  # today, empty, is always there
-    assert calendar.count("<h2>") == 1
+    assert "Відпочиваємо :-)" in home  # today, empty, is always there
+    assert home.count('<div class="day') == 1
 
 
 def test_web_home_groups_undated_todos_by_project(

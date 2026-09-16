@@ -112,11 +112,9 @@ def test_web_pages(db: Database, family: Family) -> None:
     assert ">Речі</a>" in home.text and ">Користувачі</a>" in home.text
     assert ">Мрії</a>" in home.text
     assert ">Нотатки</a>" in home.text  # the one page since 2026-09-13; /journal was the log
-    tabs = [home.text.index(f">{t}</a>") for t in ("Задачі", "Календар", "Нотатки", "Речі", "Мрії")]
-    assert tabs == sorted(tabs)  # the calendar right after the tasks, then the notes
-    calendar = client.get("/calendar", headers=_auth())
-    assert calendar.status_code == 200 and 'class="current">Календар' in calendar.text
-    assert client.get("/calendar").status_code == 401
+    tabs = [home.text.index(f">{t}</a>") for t in ("Задачі", "Нотатки", "Речі", "Мрії")]
+    assert tabs == sorted(tabs)
+    assert ">Календар</a>" not in home.text  # on the home page since 2026-09-16, not a tab
     dreams = client.get("/dreams", headers=_auth())
     assert dreams.status_code == 200 and 'class="current">Мрії' in dreams.text
     assert "Поїхати в Японію з Олею" in dreams.text and "Анна" in dreams.text
