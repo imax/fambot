@@ -132,7 +132,7 @@ async def test_one_nudge_per_member_per_day(db: Database, family: Family) -> Non
         sent.append((member.id, t.id))
         return 100 + t.id
 
-    now = datetime(2026, 9, 16, 12, 30, tzinfo=KYIV)
+    now = datetime(2026, 9, 16, 10, 0, tzinfo=KYIV)
     delivered = await deliver_due_nudges(db, family, now, send)
     assert {m: t.id for m, t in delivered.items()} == {"oleh": old.id}
     assert sent == [("oleh", old.id)]

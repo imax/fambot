@@ -75,7 +75,7 @@ def load_settings() -> Settings:
         llm_model=_env("LLM_MODEL", "claude-sonnet-5") or "",
         llm_effort=_env("LLM_EFFORT", "medium") or "",
         digest_time=_env_time("DIGEST_TIME", "08:30"),
-        nudge_time=_env_time("NUDGE_TIME", "12:30"),
+        nudge_time=_env_time("NUDGE_TIME", "10:00"),
         port=int(_env("PORT", "8080") or 8080),
         tz=ZoneInfo(_env("TZ", "Europe/Kyiv") or "Europe/Kyiv"),
     )

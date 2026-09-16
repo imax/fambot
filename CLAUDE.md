@@ -205,7 +205,7 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   `/today` is the same digest now. A reminder is text the LLM wrote at request time,
   sent by a per-minute job when `at` comes, to the one member it is for or to everyone.
   A nudge (2026-09-16) is a todo without a day or a project, sent once at `NUDGE_TIME`
-  (12:30) the day after it was filed, to its owner or to everyone, at most one per
+  (10:00 since the evening of 2026-09-16, 12:30 before) the day after it was filed, to its owner or to everyone, at most one per
   member per day (the newest first), with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the
   web) and «Завтра» (`todos.remind_on` = tomorrow); no tap means silence. `remind_on`
   is set by code on create (ops), cleared when a day or a project arrives, and the LLM

@@ -57,6 +57,6 @@ def test_login_link_signs_the_member_in() -> None:
 def test_help_text_lists_commands() -> None:
     text = help_text(_settings())
     assert "08:30" in text and "/web — " in text and "/help — " in text
-    assert "12:30" in text and "«Завтра»" in text
+    assert "10:00" in text and "«Завтра»" in text
     assert "Фото" in text and "під річчю" in text
     assert "/start" not in text
