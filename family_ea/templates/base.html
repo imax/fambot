@@ -43,14 +43,12 @@
   .ical { text-decoration: none; margin-left: .4rem; }
   h2.overdue { color: #b33; }
   .time { color: #444; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  /* the agenda: a heading per day (today marked), the rows under it with the text on the
-     left and the time on the right, its end small and grey under it; tighter than the h2
-     sections around it, the days are many */
-  .agenda h3 { font-size: .95rem; margin: .9rem 0 0; padding-bottom: .15rem; color: #222; border-bottom: 1px solid #eee; }
+  /* the agenda, like the phone's calendar widget: a small heading per day (today in red),
+     the rows under it with the time in a narrow column next to the text */
+  .agenda h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: #777; font-weight: 600;
+               margin: .8rem 0 .1rem; }
   .agenda h3.now { color: #b33; }
-  .agenda li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: .8rem; padding: .3rem 0; }
-  .agenda .time { text-align: right; }
-  .agenda .time small { display: block; color: #999; font-size: .8rem; line-height: 1.2; }
+  .agenda li { display: grid; grid-template-columns: 3.4rem minmax(0, 1fr); column-gap: .5rem; padding: .3rem 0; }
   .agenda li.empty { display: block; }
   .mark { margin-right: .25rem; }
   .reminder, .reminder .time { color: #888; }

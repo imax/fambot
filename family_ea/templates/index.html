@@ -14,9 +14,9 @@
 </ul>
 {% endfor %}
 {# the agenda: every day with a planned event or a pending reminder, today always, a
-   heading per day and its rows under it, the time on the right with the end (or «до …»
-   of a multi-day one) small under it; nothing else on the row. Read-only: events and
-   reminders are made and moved in the chat #}
+   small heading per day (like the phone's calendar widget) and its rows under it, the time
+   on the left next to the text; nothing else on the row. Read-only: events and reminders
+   are made and moved in the chat #}
 <h2>Календар</h2>
 <div class="agenda">
 {% for day in days %}
@@ -24,10 +24,9 @@
 <ul>
   {% for r in day.rows %}
   <li class="{{ r.kind }}" data-id="{{ r.id }}">
+    <span class="time">{% if not r.all_day %}{{ r.time }}{% endif %}</span>
     <span>{% if r.kind == 'reminder' %}<span class="mark">⏰</span>{% endif %}{{ r.text }}
       {%- if r.ics_url %}<a class="ical" href="{{ r.ics_url }}" title="в календар (.ics)">📅</a>{% endif %}</span>
-    <span class="time">{% if not r.all_day %}{{ r.time }}{% endif %}
-      {%- if r.note %}<small>{{ r.note }}</small>{% endif %}</span>
   </li>
   {% else %}
   <li class="empty">Відпочиваємо :-)</li>

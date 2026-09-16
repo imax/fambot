@@ -167,12 +167,12 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     assert '<h3 class="now">Сьогодні, четвер 10.09</h3>' in agenda
     assert agenda.index("Сьогодні") < agenda.index("Відпочиваємо :-)")  # empty today, listed
     assert agenda.index("Відпочиваємо") < agenda.index("<h3>Завтра, п'ятниця 11.09</h3>")
-    assert agenda.index("<h3>Завтра") < agenda.index("14:30</span>") < agenda.index("15:30<small>")
-    assert "Стоматолог<a" in agenda and "<small>до 16:30</small>" in agenda and "Анна" not in agenda
+    assert agenda.index("<h3>Завтра") < agenda.index("14:30</span>") < agenda.index("15:30</span>")
+    assert "Стоматолог<a" in agenda and "до 16:30" not in agenda and "Анна" not in agenda
     assert '<span class="mark">⏰</span>Стоматолог о 15:30' in agenda and "усім" not in agenda
     assert '<li class="event" data-id="1">' in agenda and 'href="/events/1.ics"' in agenda
     assert "<h3>Вівторок 15.09</h3>" in agenda and "весь день" not in agenda  # all-day: 15.09
-    assert re.search(r'Буріння<a[^\n]*\n\s*<span class="time"></span>', agenda)  # no time
+    assert re.search(r'<span class="time"></span>\s*<span>Буріння', agenda)  # no time
     assert "Купити квіти" not in agenda
     assert "Стоматолог" not in home[home.index("Прострочено") :]
     assert home.index("<h2>Без дати</h2>") < home.index(">Подзвонити газовику Петру</span>")
