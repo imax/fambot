@@ -207,7 +207,6 @@ def build_web(
                 "q": "",
                 "todos": todos,
                 "today": board_blocks(db.current_today_lists(), family, member.id, now),
-                "remember": board_blocks(db.current_remember_lists(), family, member.id, now),
                 "done": db.recent_done_todos(DONE_SHOWN),
             },
         )

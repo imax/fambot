@@ -63,29 +63,6 @@ def test_today_op_replaces_a_board(db: Database, family: Family) -> None:
     assert db.current_today_lists()["anna"].text == ""  # cleared
 
 
-def test_remember_op_replaces_the_second_board(db: Database, family: Family) -> None:
-    mid = db.insert_message("oleh", "oleh", "...")
-    result = LlmResult.model_validate(
-        {
-            "reply": "Ок.",
-            "remember": [
-                {"text": "Купити подарунок мамі."},
-                {"member": "anna", "text": "Насіння."},
-            ],
-        }
-    )
-    applied = apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
-    assert [(a.kind, a.op, a.ok, a.note) for a in applied] == [
-        ("remember", "set", True, ""),
-        ("remember", "set", True, "for anna"),
-    ]
-    boards = db.current_remember_lists()
-    assert boards["oleh"].text == "Купити подарунок мамі." and boards["anna"].text == "Насіння."
-    assert db.current_today_lists() == {}  # the other board is untouched
-    again = apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
-    assert [(a.ok, a.note) for a in again] == [(False, "unchanged"), (False, "unchanged")]
-
-
 def test_normalize_datetime() -> None:
     assert normalize_datetime("2026-09-10T15:30:00+03:00", KYIV) == "2026-09-10T12:30:00Z"
     assert normalize_datetime("2026-09-10T15:30:00", KYIV) == "2026-09-10T12:30:00Z"

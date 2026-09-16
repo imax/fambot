@@ -1,7 +1,7 @@
 # Family EA
 
 Private family assistant in Telegram: two adults throw text and voice at the bot, it keeps
-one shared state (items, events, todos in projects, dreams, reminders, two boards per member, one notes page),
+one shared state (items, events, todos in projects, dreams, reminders, a board per member, one notes page),
 answers questions from it,
 pushes a morning digest and sends reminders at the asked time. Deployed to Fly.io, SQLite on a volume, in real use since 2026-09-10.
 
@@ -154,15 +154,15 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   on the web. Which item a message is about, the LLM decides from
   those candidates (an update with an id, or a question in the reply); there is no
   matching code, and an ambiguous message must change nothing.
-- **A board is free text per member, replaced whole.** Two of them, «на сьогодні»
-  (`today_lists`, op `today`) and «Не забути» (`remember_lists`, op `remember`,
-  2026-09-14): the same shape, its own table and op each (`db.Board`). The LLM returns
-  the new text of one member's board, and only when the person addresses that board
-  explicitly («на сьогодні: …», «додай у сьогодні …», «не забути: …»); everything else
-  stays a todo or an event. Code never parses a board: it is shown as kept (the web, one
-  block under the other, the viewer's own first; only the today board in the digest
-  head) and versioned like facts. Nothing resets it; staleness is shown («оновлено
-  вчора»), not acted on.
+- **A board is free text per member, replaced whole.** One, «на сьогодні»
+  (`today_lists`, op `today`, `db.Board`). The LLM returns the new text of one member's
+  board, and only when the person addresses it explicitly («на сьогодні: …», «додай у
+  сьогодні …»); everything else stays a todo or an event. Code never parses a board: it
+  is shown as kept (the web, the viewer's own first; the digest head) and versioned like
+  facts. Nothing resets it; staleness is shown («оновлено вчора»), not acted on. A
+  second board, «Не забути» (`remember_lists`, op `remember`), lived from 2026-09-14 to
+  2026-09-16 and went when the nudges came: «не забути: …» is a todo without a date,
+  which the bot brings up itself. The production table stays, unread, like `journal`.
 - **Original messages are never mutated.** `messages.raw_text` is append-only.
 - **A file belongs to the message it came with.** A photo goes to the LLM as an image
   block before the context of that one call (`llm.Image`, `user_content()`); the caption
@@ -206,7 +206,7 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   sent by a per-minute job when `at` comes, to the one member it is for or to everyone.
   A nudge (2026-09-16) is a todo without a day or a project, sent once at `NUDGE_TIME`
   (12:30) the day after it was filed, to its owner or to everyone, at most one per
-  member per day, with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the
+  member per day (the newest first), with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the
   web) and «Завтра» (`todos.remind_on` = tomorrow); no tap means silence. `remind_on`
   is set by code on create (ops), cleared when a day or a project arrives, and the LLM
   sets it only on an explicit ask (`TodoOp.remind_on`). All three are stored as bot

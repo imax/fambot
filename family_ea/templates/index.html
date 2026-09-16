@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Задачі{% endblock %}
 {% block body %}
-{# the two boards of each member, the viewer's own first: free text as kept in the chat #}
-{% for title, boards in [("На сьогодні", today), ("Не забути", remember)] %}
+{# the board of each member, the viewer's own first: free text as kept in the chat #}
+{% for title, boards in [("На сьогодні", today)] %}
 <h2>{{ title }}</h2>
 <ul class="rows today">
   {% for b in boards %}

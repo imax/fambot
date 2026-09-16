@@ -154,7 +154,7 @@ def test_web_home_and_calendar(
     assert "· до 09.09 · Анна" in home
     assert "<h2>З дедлайном</h2>" not in home  # nothing due from today on
     assert "Буріння" not in home and "Стоматолог" not in home  # the calendar's, not here
-    assert home.index("<h2>Не забути</h2>") < home.index("Прострочено")  # the boards first
+    assert home.index("<h2>На сьогодні</h2>") < home.index("Прострочено")  # the board first
     assert home.index("<h2>Без дати</h2>") < home.index(">Подзвонити газовику Петру</span>")
     assert 'class="id"' not in home  # database ids are not for people
     tail = home[home.index("<h2>Зроблено</h2>") :]  # the last done ones, at the very bottom
@@ -267,7 +267,7 @@ def test_web_home_boards_own_first(
     client = TestClient(build_web(_settings(), family, db))
 
     def head(page: str) -> str:
-        return page[page.index("<h2>На сьогодні</h2>") : page.index("<h2>Не забути</h2>")]
+        return page[page.index("<h2>На сьогодні</h2>") : page.index("<h2>Без дати</h2>")]
 
     boards = head(client.get("/", headers=_auth("anna")).text)
     assert boards.index("Анна") < boards.index("Олег")
@@ -276,18 +276,10 @@ def test_web_home_boards_own_first(
     boards = head(client.get("/", headers=_auth()).text)
     assert boards.index("Олег") < boards.index("Анна")
 
-    # The second board, «Не забути», sits under the first and before the todos.
-    db.save_remember_list("oleh", "Купити подарунок мамі.", "oleh")
+    # One board only: «Не забути» went on 2026-09-16; the todos come right after it.
     home = client.get("/", headers=_auth("anna")).text
-    first, second, todos = (
-        home.index("<h2>На сьогодні</h2>"),
-        home.index("<h2>Не забути</h2>"),
-        home.index("<h2>Без дати</h2>"),
-    )
-    assert first < second < todos
-    remember = home[second:todos]
-    assert remember.index("Анна") < remember.index("Олег")  # the viewer's own first
-    assert "Купити подарунок мамі." in remember and remember.count("порожньо") == 1
+    assert "Не забути" not in home
+    assert home.index("<h2>На сьогодні</h2>") < home.index("<h2>Без дати</h2>")
 
 
 def test_web_home_empty(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -135,7 +135,7 @@ _OP_KIND = {
     "dreams": "dream",
     "notes": "notes",  # the one page, from 2026-09-13; `journal` above is the old log
     "today": "today",
-    "remember": "remember",
+    "remember": "remember",  # rows of 2026-09-14 to 2026-09-16, the «Не забути» board
     "reminders": "reminder",
 }
 

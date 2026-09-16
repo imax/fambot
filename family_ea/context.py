@@ -717,10 +717,6 @@ def build_context(
             board_context_lines(db.current_today_lists(), family, tz),
         ),
         section(
-            "Не забути (remember: друга дошка кожного, без дня; змінюється лише на явне прохання)",
-            board_context_lines(db.current_remember_lists(), family, tz),
-        ),
-        section(
             f"Події (минулі за {PAST_EVENT_DAYS} днів і всі майбутні)",
             [f"- {event_line(e, family, tz)}" for e in agenda.recent + agenda.upcoming],
         ),

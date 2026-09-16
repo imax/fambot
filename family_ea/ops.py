@@ -1,5 +1,5 @@
 """Apply LLM operations to the database: items, events, todos, projects, dreams, reminders,
-today and remember boards, the notes page.
+the today board, the notes page.
 
 Invalid ops (unknown ids, closed items, bad dates, an event without a date, a reminder
 without a time) are ignored and logged, never fatal; `failure_note` puts them under the
@@ -34,7 +34,6 @@ KIND_UK = {
     "dream": "мрію",
     "reminder": "нагадування",
     "today": "список на сьогодні",
-    "remember": "список «Не забути»",
     "notes": "нотатки",
 }
 OP_UK = {
@@ -49,7 +48,7 @@ OP_UK = {
 
 @dataclass(frozen=True)
 class Applied:
-    kind: str  # item | event | todo | project | dream | reminder | today | remember | notes
+    kind: str  # item | event | todo | project | dream | reminder | today | notes
     op: str
     id: int | None
     ok: bool
@@ -518,11 +517,8 @@ def apply_ops(
                 )
             )
 
-    # The two boards of a member: the same shape, each replaced whole.
-    boards = (
-        ("today", result.today, db.current_today_lists, db.save_today_list),
-        ("remember", result.remember, db.current_remember_lists, db.save_remember_list),
-    )
+    # The board of a member, replaced whole.
+    boards = (("today", result.today, db.current_today_lists, db.save_today_list),)
     for kind, board_ops, current_boards, save_board in boards:
         for t in board_ops:
             member = author_id if not t.member else normalize_member(t.member, family)

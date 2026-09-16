@@ -5,7 +5,7 @@ Six kinds of output besides the reply: items (things and where they are), events
 deadline day or none), projects (names that group the todos), dreams (what the family
 wants some day: no date, one shared list)
 and reminders (a message to send someone at a given moment); plus `today`, a member's «на
-сьогодні» board, `remember`, a member's «Не забути» board, and `notes`, the family's one
+сьогодні» board, and `notes`, the family's one
 reference page («Нотатки»): all free text, replaced whole, only when asked. What happened,
 stories, chatter are not kept: the bot answers and does not promise to write them down (a
 journal of notes by day lived 2026-09-11..12 and went; the page came on 2026-09-13).
@@ -150,17 +150,6 @@ class TodayOp(BaseModel):
     )
 
 
-# The second board of a member, «Не забути»: the same shape, its own op.
-class RememberOp(BaseModel):
-    member: str = Field(
-        default="", description="чий список «Не забути»: id людини; порожньо — автора повідомлення"
-    )
-    text: str = Field(
-        default="",
-        description="повний новий текст списку одним реченням; порожньо — очистити список",
-    )
-
-
 # One page for the whole family, rewritten whole, so no `op` field either.
 class NotesOp(BaseModel):
     text: str = Field(
@@ -178,7 +167,6 @@ class LlmResult(BaseModel):
     dreams: list[DreamOp] = Field(default_factory=list)
     reminders: list[ReminderOp] = Field(default_factory=list)
     today: list[TodayOp] = Field(default_factory=list)
-    remember: list[RememberOp] = Field(default_factory=list)
     notes: list[NotesOp] = Field(default_factory=list)
 
 
@@ -192,8 +180,7 @@ SYSTEM_PROMPT = """\
 У контексті є «Факти про сім'ю» — стабільний фон, який веде людина сама: хто є хто, адреси, \
 звички, як до кого звертатись. Спирайся на них, але не редагуй: ти їх не повертаєш. Те, що \
 людина просить вести, — це items, events, todos, projects, dreams і reminders; «Списки на \
-сьогодні» — дошка кожного, яку ти переписуєш лише на явне прохання (today), «Не забути» — \
-друга така дошка кожного (remember); «Нотатки» — \
+сьогодні» — дошка кожного, яку ти переписуєш лише на явне прохання (today); «Нотатки» — \
 одна довідкова сторінка сім'ї, яку ти так само переписуєш цілком лише на явне прохання \
 (notes). Щоденника нема: що сталося, як пройшло, хто що розповів, ти не зберігаєш, поки \
 людина явно не просить це запам'ятати (тоді — в нотатки). На решту коротко відреагуй без \
@@ -202,8 +189,7 @@ SYSTEM_PROMPT = """\
 Що ти вмієш, і більше нічого: відповідати в цьому чаті; читати фото, яке прислали з \
 повідомленням; вести речі (items: що у нас є і де лежить), events, todos, проєкти \
 (projects: групи задач на вебі), мрії (dreams: \
-спільний список на вебі), reminders, список на сьогодні (today) і список «Не забути» \
-(remember) кожного і сторінку «Нотатки» \
+спільний список на вебі), reminders, список на сьогодні (today) кожного і сторінку «Нотатки» \
 (notes: одна довідка на вебі, яку ти сам дописуєш); щоранку о 08:30 \
 писати кожному дайджест (списки на сьогодні, події на сьогодні й завтра, задачі на \
 сьогодні, прострочені; задачі без дати лише на вебі); о 12:30 нагадувати про одну \
@@ -318,14 +304,8 @@ todo, і в reply чесно скажи, що записав як задачу �
 просять змінити список партнера. Усе інше («сьогодні треба подзвонити газовику», «завтра \
 помити авто») — як і раніше todo чи подія, не цей список. «Що в мене на сьогодні?» — \
 відповідай з дошки в reply, без операцій.
-- remember — «Не забути»: друга дошка кожного, такий самий вільний текст одним рядком, \
-видно обом і на вебі (під списком на сьогодні); те, що людина хоче тримати перед очима без \
-дня і без дедлайну: «не забути: подарунок мамі», «додай у не забути насіння», «прибери з \
-не забути насіння», «очисти не забути». Змінюй лише коли людина явно називає цей список; \
-ті самі правила, що для today: пункти через кому, слова людини як є, міняй лише названі \
-пункти, порожній text очищає, member — чий список. «Не забудь подзвонити мамі» без згадки \
-списку — todo, як і раніше; «нагадай …» — reminder; «запам'ятай …» — notes. «Що мені не \
-забути?» — відповідай з дошки в reply, без операцій.
+«Не забути: подзвонити мамі», «не забудь …» — todo без дати (про неї бот сам нагадає \
+завтра); окремого списку «не забути» нема. «Нагадай …» — reminder; «запам'ятай …» — notes.
 - dreams — мрії: чого сім'ї хочеться колись, без дати й дедлайну; один спільний список, \
 видно обом, у кожної мрії видно, хто її додав: «Поїхати в Японію з Олею», «Пройти Camino \
 de Santiago». Записуй лише коли людина явно каже, що це мрія: «мрію…», «моя мрія — …», \

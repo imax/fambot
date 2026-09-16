@@ -117,12 +117,12 @@ async def test_one_nudge_per_member_per_day(db: Database, family: Family) -> Non
     _new(db, "Клініки", "anna", "2026-09-16")
     later = _new(db, "Віза", "oleh", "2026-09-17")
     old = _new(db, "Масаж", "oleh", "2026-09-15")
-    assert [t.id for t in db.due_nudges("2026-09-16")] == [old.id, shared.id, 2]
+    assert [t.id for t in db.due_nudges("2026-09-16")] == [old.id, 2, shared.id]  # newest first
 
-    # The longest waiting one each: Oleh's own from yesterday, the shared one for Anna
-    # (nothing older of hers); her own waits for tomorrow, and so does Oleh's later one.
+    # The newest one each: Oleh's «Масаж» (filed last), Anna's own «Клініки»; the shared
+    # one waits, and so does Oleh's later one.
     picks = pick_nudges(db, family, "2026-09-16")
-    assert {m: t.id for m, t in picks.items()} == {"oleh": old.id, "anna": shared.id}
+    assert {m: t.id for m, t in picks.items()} == {"oleh": old.id, "anna": 2}
 
     sent: list[tuple[str, int]] = []
 
@@ -137,19 +137,21 @@ async def test_one_nudge_per_member_per_day(db: Database, family: Family) -> Non
     assert {m: t.id for m, t in delivered.items()} == {"oleh": old.id}
     assert sent == [("oleh", old.id)]
     assert db.get_todo(old.id).remind_on is None  # sent: silence unless «Завтра»
-    assert db.get_todo(shared.id).remind_on == "2026-09-16"  # Anna was not reached: tomorrow
+    assert db.get_todo(2).remind_on == "2026-09-16"  # Anna was not reached: tomorrow
     msgs = db.recent_messages()
     assert [(m.user_id, m.chat_with, m.raw_text, m.tg_message_id) for m in msgs] == [
         ("bot", "oleh", "🔔 Масаж", 100 + old.id)
     ]  # stored in his chat only: Anna got nothing
 
-    # The next day: the shared one to both (Oleh's own later one waits again), then his.
-    delivered = await deliver_due_nudges(db, family, now.replace(day=17), lambda m, t: send(m, t))
+    # The next days for Oleh: the later one (newer than the shared one), then the shared
+    # one, then nothing; Anna's own keeps waiting for her, one try a day.
+    delivered = await deliver_due_nudges(db, family, now.replace(day=17), send)
+    assert {m: t.id for m, t in delivered.items()} == {"oleh": later.id}
+    delivered = await deliver_due_nudges(db, family, now.replace(day=18), send)
     assert {m: t.id for m, t in delivered.items()} == {"oleh": shared.id}
     assert db.get_todo(shared.id).remind_on is None
-    delivered = await deliver_due_nudges(db, family, now.replace(day=18), send)
-    assert {m: t.id for m, t in delivered.items()} == {"oleh": later.id}
     assert await deliver_due_nudges(db, family, now.replace(day=19), send) == {}
+    assert db.get_todo(2).remind_on == "2026-09-16"
 
 
 def test_the_buttons(db: Database) -> None:

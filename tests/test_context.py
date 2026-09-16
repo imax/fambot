@@ -136,7 +136,6 @@ def test_context_shows_today_boards(
 ) -> None:
     monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-10T05:12:00Z")
     db.save_today_list("oleh", "сходити на НП\nпланка", "oleh")
-    db.save_remember_list("anna", "Купити подарунок мамі.", "anna")
     now = datetime(2026, 9, 10, 8, 0, tzinfo=KYIV)
     ctx = build_context(db, family, now, oleh, "привіт")
     assert ctx.endswith("## Нове повідомлення\nвід oleh (Олег), текстом:\nпривіт")
@@ -162,12 +161,7 @@ def test_context_shows_today_boards(
         "- [#2] Авто (0 відкритих)\n" in ctx
     )
     assert "- [#2] Вільна\n- [#1] Інструкція (Олег, проєкт: Калинівка)\n" in ctx
-    assert (
-        "## Не забути (remember: друга дошка кожного, без дня; змінюється лише на явне"
-        " прохання)\n"
-        "- oleh (Олег): порожньо\n"
-        "- anna (Анна), оновлено 10.09 08:12:\n  Купити подарунок мамі.\n" in ctx
-    )
+    assert "Не забути" not in ctx  # the second board went on 2026-09-16
 
 
 def test_build_context_sections(

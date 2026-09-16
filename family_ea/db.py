@@ -1,5 +1,5 @@
 """SQLite storage: members, messages, items, events, todos, projects, dreams, reminders,
-facts, notes, today lists, remember lists.
+facts, notes, today lists.
 
 One connection, one process, one writer. Original messages are never mutated; items are
 removed (gone) and every change to one writes an item_history row; todos and dreams are
@@ -151,14 +151,6 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE TABLE IF NOT EXISTS today_lists (
   id INTEGER PRIMARY KEY,           -- every change is a new row; the latest per member is current
   member TEXT NOT NULL,             -- whose «на сьогодні» board
-  text TEXT NOT NULL,               -- free text, as the person keeps it; '' = cleared
-  created_at TEXT NOT NULL,
-  created_by TEXT NOT NULL          -- the member who asked for the change
-);
-
-CREATE TABLE IF NOT EXISTS remember_lists (
-  id INTEGER PRIMARY KEY,           -- every change is a new row; the latest per member is current
-  member TEXT NOT NULL,             -- whose «Не забути» board
   text TEXT NOT NULL,               -- free text, as the person keeps it; '' = cleared
   created_at TEXT NOT NULL,
   created_by TEXT NOT NULL          -- the member who asked for the change
@@ -345,8 +337,9 @@ class Notes:
 
 @dataclass(frozen=True)
 class Board:
-    """One member's free-text board («на сьогодні» or «Не забути»), kept through the bot,
-    a new row per change; the tables `today_lists` and `remember_lists` have the same shape."""
+    """One member's free-text board («на сьогодні»), kept through the bot, a new row per
+    change. (A second board, «Не забути» in `remember_lists`, lived 2026-09-14 to
+    2026-09-16; the production table stays, untouched and unread, like `journal`.)"""
 
     id: int
     member: str
@@ -841,7 +834,7 @@ class Database:
     def notes_versions(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
 
-    # --- boards: today lists, remember lists ---------------------------------
+    # --- boards: today lists -------------------------------------------------
 
     def current_today_lists(self) -> dict[str, Board]:
         """The latest «на сьогодні» board of every member who ever had one, by member id."""
@@ -850,14 +843,6 @@ class Database:
     def save_today_list(self, member: str, text: str, created_by: str) -> int:
         """Store a new version of `member`'s «на сьогодні» board. Returns its id."""
         return self._save_board("today_lists", member, text, created_by)
-
-    def current_remember_lists(self) -> dict[str, Board]:
-        """The latest «Не забути» board of every member who ever had one, by member id."""
-        return self._current_boards("remember_lists")
-
-    def save_remember_list(self, member: str, text: str, created_by: str) -> int:
-        """Store a new version of `member`'s «Не забути» board. Returns its id."""
-        return self._save_board("remember_lists", member, text, created_by)
 
     def _current_boards(self, table: str) -> dict[str, Board]:
         rows = self.conn.execute(
@@ -1066,11 +1051,12 @@ class Database:
         return [_todo(r) for r in rows]
 
     def due_nudges(self, today: str) -> list[Todo]:
-        """Open todos whose nudge day (`remind_on`, ISO date) has come, the longest waiting
-        first. The noon job picks one per member from these (bot.deliver_due_nudges)."""
+        """Open todos whose nudge day (`remind_on`, ISO date) has come, the newest first
+        (the freshest is the one still worth a nudge). The noon job picks one per member
+        from these (bot.deliver_due_nudges)."""
         rows = self.conn.execute(
             "SELECT * FROM todos WHERE status = 'open' AND remind_on IS NOT NULL"
-            " AND remind_on <= ? ORDER BY remind_on, id",
+            " AND remind_on <= ? ORDER BY id DESC",
             (today,),
         ).fetchall()
         return [_todo(r) for r in rows]
