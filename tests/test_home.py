@@ -161,8 +161,7 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     )
 
     # The agenda: a heading per day with a planned event or a pending reminder, today
-    # always and marked; the time on the right, the end small under it; no todos, no owner,
-    # no «весь день».
+    # always and marked; the time on the left; no todos, no owner.
     agenda = home[home.index("<h2>Календар</h2>") : home.index("Прострочено")]
     assert '<h3 class="now">Сьогодні, четвер 10.09</h3>' in agenda
     assert agenda.index("Сьогодні") < agenda.index("Відпочиваємо :-)")  # empty today, listed
@@ -171,8 +170,8 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     assert "Стоматолог<a" in agenda and "до 16:30" not in agenda and "Анна" not in agenda
     assert '<span class="mark">⏰</span>Стоматолог о 15:30' in agenda and "усім" not in agenda
     assert '<li class="event" data-id="1">' in agenda and 'href="/events/1.ics"' in agenda
-    assert "<h3>Вівторок 15.09</h3>" in agenda and "весь день" not in agenda  # all-day: 15.09
-    assert re.search(r'<span class="time"></span>\s*<span>Буріння', agenda)  # no time
+    assert "<h3>Вівторок 15.09</h3>" in agenda  # the all-day event on 15.09
+    assert re.search(r'<span class="time allday">весь день</span>\s*<span>Буріння', agenda)
     assert "Купити квіти" not in agenda
     assert "Стоматолог" not in home[home.index("Прострочено") :]
     assert home.index("<h2>Без дати</h2>") < home.index(">Подзвонити газовику Петру</span>")
