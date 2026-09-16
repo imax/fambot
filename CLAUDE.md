@@ -133,8 +133,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   Moving existing todos in is `ProjectOp.todos` (ids) on the same create/update op: the
   first prompt asked for a todo update per moved todo and the model created the project,
   emitted none and said «переніс» (2026-09-14, in production). The web shows the undated
-  todos as a list per project (an h2 each, «Інше» last for the ones without: the default,
-  not a project row, «в Інше» in the chat is `project: "-"`), a row
+  todos as a list per project («Без дати» first for the ones without: the default, not a
+  project row, «забери з проєкту» in the chat is `project: "-"`; it was «Інше» and last
+  until 2026-09-16), a row
   dragged within its list or into another one, which moves the todo (`POST /todos/order`
   with `project`, through `db.update_todo`). The order of the projects is set on the web
   (a drag by the «⋮⋮» next to the name, `projects.position`, `db.reorder_projects`), the
@@ -203,8 +204,14 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   never the undated ones (they are on the web), no LLM call, and is silent when empty;
   `/today` is the same digest now. A reminder is text the LLM wrote at request time,
   sent by a per-minute job when `at` comes, to the one member it is for or to everyone.
-  Both are stored as bot messages in each recipient's chat so replies to them have
-  context. Anything else the bot sends on its own must follow the same two rules.
+  A nudge (2026-09-16) is a todo without a day or a project, sent once at `NUDGE_TIME`
+  (12:30) the day after it was filed, to its owner or to everyone, at most one per
+  member per day, with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the
+  web) and «Завтра» (`todos.remind_on` = tomorrow); no tap means silence. `remind_on`
+  is set by code on create (ops), cleared when a day or a project arrives, and the LLM
+  sets it only on an explicit ask (`TodoOp.remind_on`). All three are stored as bot
+  messages in each recipient's chat so replies to them have context. Anything else the
+  bot sends on its own must follow the same two rules.
 - **Web identity comes from the bot.** No passwords: `/web` (and «Відкрити» under the digest
   and `/today`) sends a member a signed link, opening it sets a year-long signed cookie.
   Whoever is in `members` can log in; nothing is stored, so removing a member or

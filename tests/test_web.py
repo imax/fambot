@@ -33,6 +33,7 @@ def _settings(**kw) -> Settings:
         llm_model="m",
         llm_effort="medium",
         digest_time=time(8, 30),
+        nudge_time=time(12, 30),
         port=8080,
         tz=KYIV,
     )

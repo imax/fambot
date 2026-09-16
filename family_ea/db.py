@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS todos (
   created_at TEXT NOT NULL,
   source_message_id INTEGER NOT NULL,
   closed_at TEXT,
-  project_id INTEGER                -- the project it is grouped under (projects.id); NULL = none
+  project_id INTEGER,               -- the project it is grouped under (projects.id); NULL = none
+  remind_on TEXT                    -- ISO date: the day the bot nudges about it at noon (see
+                                    --   bot.deliver_due_nudges); NULL = no nudge
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -234,6 +236,7 @@ class Todo:
     closed_at: str | None
     position: int | None = None  # set by dragging on the web; meaningful for undated ones
     project_id: int | None = None  # the project it is grouped under; None = none
+    remind_on: str | None = None  # ISO date of the nudge to come; None = none
 
     @property
     def is_open(self) -> bool:
@@ -436,7 +439,7 @@ def _reminder(row: sqlite3.Row) -> Reminder:
 
 ITEM_UPDATABLE = ("name", "owner", "place", "spot", "note")
 ITEM_LABELS = {"name": "назва", "owner": "власник", "note": "примітка"}  # history detail
-TODO_UPDATABLE = ("text", "owner", "due", "project_id")
+TODO_UPDATABLE = ("text", "owner", "due", "project_id", "remind_on")
 EVENT_UPDATABLE = ("text", "who", "starts_at", "until", "date_from", "date_to")
 REMINDER_UPDATABLE = ("text", "who", "at")
 
@@ -505,6 +508,10 @@ class Database:
         if "project_id" not in columns:
             # 2026-09-14: projects group the todos.
             self.conn.execute("ALTER TABLE todos ADD COLUMN project_id INTEGER")
+            self.conn.commit()
+        if "remind_on" not in columns:
+            # 2026-09-16: a nudge about a todo without a date or a project, the day after.
+            self.conn.execute("ALTER TABLE todos ADD COLUMN remind_on TEXT")
             self.conn.commit()
         columns = {r[1] for r in self.conn.execute("PRAGMA table_info(projects)")}
         if "position" not in columns:
@@ -998,17 +1005,28 @@ class Database:
         source_message_id: int,
         due: str | None = None,
         project_id: int | None = None,
+        remind_on: str | None = None,
     ) -> int:
         cur = self.conn.execute(
             "INSERT INTO todos (text, owner, status, due, created_by, created_at,"
-            " source_message_id, project_id) VALUES (?, ?, 'open', ?, ?, ?, ?, ?)",
-            (text, owner, due, created_by, utc_now_iso(), source_message_id, project_id),
+            " source_message_id, project_id, remind_on) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?)",
+            (
+                text,
+                owner,
+                due,
+                created_by,
+                utc_now_iso(),
+                source_message_id,
+                project_id,
+                remind_on,
+            ),
         )
         self.conn.commit()
         return int(cur.lastrowid or 0)
 
     def update_todo(self, todo_id: int, **fields: str | int | None) -> bool:
-        """Update text/owner/due/project_id of an open todo. Returns False if not open."""
+        """Update text/owner/due/project_id/remind_on of an open todo. Returns False if not
+        open."""
         fields = {k: v for k, v in fields.items() if k in TODO_UPDATABLE}
         if not fields:
             return False
@@ -1044,6 +1062,16 @@ class Database:
         rows = self.conn.execute(
             "SELECT * FROM todos WHERE status = 'open'"
             " ORDER BY position IS NOT NULL, position, id DESC"
+        ).fetchall()
+        return [_todo(r) for r in rows]
+
+    def due_nudges(self, today: str) -> list[Todo]:
+        """Open todos whose nudge day (`remind_on`, ISO date) has come, the longest waiting
+        first. The noon job picks one per member from these (bot.deliver_due_nudges)."""
+        rows = self.conn.execute(
+            "SELECT * FROM todos WHERE status = 'open' AND remind_on IS NOT NULL"
+            " AND remind_on <= ? ORDER BY remind_on, id",
+            (today,),
         ).fetchall()
         return [_todo(r) for r in rows]
 

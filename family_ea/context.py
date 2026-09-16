@@ -187,6 +187,8 @@ def todo_line(
         meta.append(f"до {fmt_due(t)}")
     if projects and t.project_id in projects:
         meta.append(f"проєкт: {projects[t.project_id]}")
+    if t.remind_on and with_id:  # the LLM sees the nudge to come; the digest does not
+        meta.append(f"нагадаю {fmt_date(t.remind_on)}")
     if meta:
         parts.append(f" ({', '.join(meta)})")
     return "".join(parts)
@@ -386,7 +388,7 @@ class Day:
 @dataclass
 class Group:
     """The undated todos of one project, in the hand-set order; `name` '' and `project_id`
-    None for the ones without a project («Інше» on the web, the default)."""
+    None for the ones without a project («Без дати» on the web, the default, first)."""
 
     name: str
     rows: list[Row] = field(default_factory=list)
@@ -534,9 +536,9 @@ def build_todo_lists(
     t.dated = [row for _, row in sorted(dated, key=lambda pair: pair[0])]
     # A todo of a closed project would have been detached; one of an unknown project (never
     # the case) falls in with the ones without.
-    t.undated = [Group(p.name, groups.pop(p.id, []), p.id) for p in projects]
+    by_project = [Group(p.name, groups.pop(p.id, []), p.id) for p in projects]
     rest = [row for pid, rows in groups.items() for row in rows]
-    t.undated.append(Group("", rest))
+    t.undated = [Group("", rest), *by_project]  # the loose ends first, then the projects
     return t
 
 

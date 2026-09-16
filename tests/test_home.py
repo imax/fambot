@@ -155,10 +155,10 @@ def test_web_home_and_calendar(
     assert "<h2>З дедлайном</h2>" not in home  # nothing due from today on
     assert "Буріння" not in home and "Стоматолог" not in home  # the calendar's, not here
     assert home.index("<h2>Не забути</h2>") < home.index("Прострочено")  # the boards first
-    assert home.index("<h2>Інше</h2>") < home.index(">Подзвонити газовику Петру</span>")
+    assert home.index("<h2>Без дати</h2>") < home.index(">Подзвонити газовику Петру</span>")
     assert 'class="id"' not in home  # database ids are not for people
     tail = home[home.index("<h2>Зроблено</h2>") :]  # the last done ones, at the very bottom
-    assert home.index("<h2>Інше</h2>") < home.index("<h2>Зроблено</h2>")
+    assert home.index("<h2>Без дати</h2>") < home.index("<h2>Зроблено</h2>")
     assert "✓</span>Замовити воду" in tail and "· Анна ·" in tail
     assert "Замовити воду" not in home[: home.index("<h2>Зроблено</h2>")]
 
@@ -194,7 +194,7 @@ def test_web_undated_order_by_dragging(
     client = TestClient(build_web(_settings(), family, db))
 
     home = client.get("/", headers=_auth()).text
-    undated = home[home.index("<h2>Інше</h2>") :]
+    undated = home[home.index("<h2>Без дати</h2>") :]
     assert undated.index("Друга") < undated.index("Перша")  # newest first until dragged
     assert '<ul class="rows sortable" data-project="">' in undated
     assert f'data-id="{first}"' in undated
@@ -203,7 +203,7 @@ def test_web_undated_order_by_dragging(
     r = client.post("/todos/order", data={"ids": [first, second]}, headers=_auth())
     assert r.status_code == 204
     home = client.get("/", headers=_auth()).text
-    undated = home[home.index("<h2>Інше</h2>") :]
+    undated = home[home.index("<h2>Без дати</h2>") :]
     assert undated.index("Перша") < undated.index("Друга")
     assert client.post("/todos/order", data={"ids": [first]}).status_code == 401
 
@@ -282,7 +282,7 @@ def test_web_home_boards_own_first(
     first, second, todos = (
         home.index("<h2>На сьогодні</h2>"),
         home.index("<h2>Не забути</h2>"),
-        home.index("<h2>Інше</h2>"),
+        home.index("<h2>Без дати</h2>"),
     )
     assert first < second < todos
     remember = home[second:todos]
@@ -323,14 +323,14 @@ def test_web_home_groups_undated_todos_by_project(
     new("Віза", empty, due="2026-09-20")  # dated: in «З дедлайном», tagged, not in the group
     client = TestClient(build_web(_settings(), family, db))
     page = client.get("/", headers=_auth()).text
-    lists = page[page.index("<h2>Калинівка") : page.index("<script>")]
-    # An h2 per project in their order, «Інше» last for the ones without a project.
-    heads = ["<h2>Калинівка", "<h2>Авто", "<h2>Документи", "<h2>Інше</h2>"]
+    lists = page[page.index("<h2>Без дати</h2>") : page.index("<script>")]
+    # «Без дати» first, for the ones without a project, then an h2 per project in their order.
+    heads = ["<h2>Без дати</h2>", "<h2>Калинівка", "<h2>Авто", "<h2>Документи"]
     assert [lists.index(h) for h in heads] == sorted(lists.index(h) for h in heads)
     assert "<h3>" not in lists and "Без проєкту" not in lists
     assert lists.index("Свердловина") < lists.index("Інструкція")  # newest first, unplaced
     assert lists.index("<h2>Авто") < lists.index("XC90") < lists.index("<h2>Документи")
-    assert lists.index("<h2>Інше</h2>") < lists.index("Окрема")
+    assert lists.index("<h2>Без дати</h2>") < lists.index("Окрема")
     # Every list is a drop target, with a placeholder shown only while it is empty; a «⋮⋮»
     # on each of the 4 rows and on the 3 project headings.
     assert lists.count('class="rows sortable"') == 4 and lists.count('class="grip"') == 7
@@ -353,15 +353,15 @@ def test_web_home_groups_undated_todos_by_project(
     r = client.post("/todos/order", data={"ids": [xc90.id], "project": "999"}, headers=_auth())
     assert r.status_code == 404 and db.get_todo(xc90.id).project_id is None
     page = client.get("/", headers=_auth()).text
-    rest = page[page.index("<h2>Інше</h2>") : page.index("<script>")]
+    rest = page[page.index("<h2>Без дати</h2>") : page.index("<h2>Калинівка")]
     assert "XC90" in rest and "Окрема" in rest
 
-    # A «⋮⋮» on every project heading, none on «Інше»; the dragged order is posted whole.
-    lists = page[page.index("<h2>Калинівка") : page.index("<script>")]
+    # A «⋮⋮» on every project heading, none on «Без дати»; the dragged order is posted whole.
+    lists = page[page.index("<h2>Без дати</h2>") : page.index("<script>")]
     handle = '<span class="grip" title="Потягни, щоб переставити проєкт">'
     for name in ("Калинівка", "Авто", "Документи"):
         assert f"<h2>{name}{handle}" in lists
-    assert "grip" not in lists[lists.index("<h2>Інше") :].split("</h2>")[0]
+    assert "grip" not in lists[lists.index("<h2>Без дати") :].split("</h2>")[0]
     assert f'<section class="project" data-project="{car}">' in lists
     r = client.post("/projects/order", data={"ids": [car, home, empty]}, headers=_auth())
     assert r.status_code == 204
@@ -373,11 +373,11 @@ def test_web_home_groups_undated_todos_by_project(
     db.close_project(home)
     page = client.get("/", headers=_auth()).text
     assert "<h2>Калинівка" not in page
-    rest = page[page.index("<h2>Інше</h2>") :]
+    rest = page[page.index("<h2>Без дати</h2>") : page.index("<h2>Авто")]
     assert "Інструкція" in rest  # detached
 
-    # Without any project the list is plain, as before: one «Інше», no project handle.
+    # Without any project the list is plain, as before: one «Без дати», no project handle.
     for p in db.open_projects():
         db.close_project(p.id)
     page = client.get("/", headers=_auth()).text
-    assert page.count("<h2>Інше</h2>") == 1 and handle not in page
+    assert page.count("<h2>Без дати</h2>") == 1 and handle not in page

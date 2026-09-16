@@ -6,7 +6,7 @@ import html
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import urlencode
 
 from telegram import (
@@ -18,7 +18,14 @@ from telegram import (
     Update,
 )
 from telegram.constants import ChatAction, ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from .auth import LINK_TTL, sign
 from .config import Settings
@@ -30,7 +37,7 @@ from .context import (
     parse_iso,
     today_lines,
 )
-from .db import Database, Member, Reminder
+from .db import Database, Member, Reminder, Todo
 from .family import Family
 from .llm import Image
 from .pipeline import Pipeline
@@ -42,6 +49,7 @@ TG_MAX_LEN = 4000
 PRIVATE_BOT = "Це приватний сімейний бот."
 REMINDER_INTERVAL = 60  # seconds between checks for due reminders
 REMINDER_MAX_LATE = timedelta(hours=3)  # due longer ago than this (downtime): missed, not sent
+NUDGE_PATTERN = r"^todo:(done|tomorrow):\d+$"  # the callback data of a nudge's two buttons
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)  # login links in text: no preview fetch
 COMMANDS = [
     BotCommand("today", "на сьогодні: списки, події, задачі, прострочене"),
@@ -59,6 +67,7 @@ def _clip(text: str) -> str:
 def help_text(settings: Settings) -> str:
     """What the bot does and its commands; /start and /help say this."""
     when = settings.digest_time.strftime("%H:%M")
+    nudge = settings.nudge_time.strftime("%H:%M")
     commands = "\n".join(f"/{c.command} — {c.description}" for c in COMMANDS)
     return (
         "Пиши або наговорюй: що треба зробити, що коли буде, де що лежить. "
@@ -69,7 +78,9 @@ def help_text(settings: Settings) -> str:
         "мрій на вебі. «Запам'ятай …» або фото розкладу з підписом «в нотатки» лягає на "
         "сторінку «Нотатки», одну довідку на вебі, яку я сам веду і переписую. Питай — "
         f"відповім з того, що знаю. Щоранку о "
-        f"{when} надсилаю дайджест, а нагадую, коли попросиш.\n\nКоманди:\n{commands}"
+        f"{when} надсилаю дайджест, а нагадую, коли попросиш. Про задачу без дати й проєкту "
+        f"сам нагадаю наступного дня о {nudge}, одну на день, з кнопками «Зроблено» і "
+        f"«Завтра».\n\nКоманди:\n{commands}"
     )
 
 
@@ -89,6 +100,78 @@ def open_keyboard(link: str | None) -> InlineKeyboardMarkup | None:
     if not link:
         return None
     return InlineKeyboardMarkup([[InlineKeyboardButton("Відкрити", url=link)]])
+
+
+def nudge_keyboard(todo_id: int) -> InlineKeyboardMarkup:
+    """The two buttons under a nudge: done closes the todo, tomorrow brings it up again."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✓ Зроблено", callback_data=f"todo:done:{todo_id}"),
+                InlineKeyboardButton("Завтра", callback_data=f"todo:tomorrow:{todo_id}"),
+            ]
+        ]
+    )
+
+
+def nudge_text(t: Todo) -> str:
+    return f"🔔 {t.text}"
+
+
+def pick_nudges(db: Database, family: Family, today: str) -> dict[str, Todo]:
+    """One todo per member (by id) for today's nudge: the longest-waiting one that is theirs
+    or nobody's. A shared todo goes to everyone who has nothing older."""
+    picks: dict[str, Todo] = {}
+    for t in db.due_nudges(today):
+        for m in family.members:
+            if m.telegram_id is None or m.id in picks or t.owner not in (None, m.id):
+                continue
+            picks[m.id] = t
+    return picks
+
+
+async def deliver_due_nudges(
+    db: Database,
+    family: Family,
+    now: datetime,
+    send: Callable[[Member, Todo], Awaitable[int]],
+) -> dict[str, Todo]:
+    """The noon job: each member gets at most one nudge, a todo whose `remind_on` has come
+    (a loose end gets one for the day after it was filed, see ops; «Завтра» sets the next),
+    with the two buttons. Stored as a bot message in their chat. The todo's `remind_on` is
+    then cleared: silence is the default, a tap on «Завтра» asks for more. `now` is in the
+    family's timezone; a member who could not be reached keeps the nudge for tomorrow."""
+    picks = pick_nudges(db, family, now.date().isoformat())
+    sent: dict[str, Todo] = {}
+    for member_id, t in picks.items():
+        member = family.get(member_id)
+        assert member
+        try:
+            tg_message_id = await send(member, t)
+        except Exception:
+            log.warning("nudge #%s: could not message %s", t.id, member.id, exc_info=True)
+            continue
+        mid = db.insert_message("bot", member.id, nudge_text(t))
+        db.set_tg_message_id(mid, tg_message_id)
+        sent[member.id] = t
+    for t in {t.id: t for t in sent.values()}.values():
+        db.update_todo(t.id, remind_on=None)
+    return sent
+
+
+def nudge_tap(db: Database, data: str, today: date) -> tuple[str, str | None]:
+    """A tap on a nudge's button (`data` matches NUDGE_PATTERN): what the toast says and
+    the message's new text (the buttons go with it); None keeps the text. Done closes the
+    todo through `close_todo` like a tap on the web, tomorrow sets `remind_on`."""
+    action, _, raw = data.removeprefix("todo:").partition(":")
+    t = db.get_todo(int(raw))
+    if t is None or not t.is_open:
+        return "Задача вже закрита.", None
+    if action == "done":
+        db.close_todo(t.id, "done")
+        return "Зроблено", f"✓ {t.text}"
+    db.update_todo(t.id, remind_on=(today + timedelta(days=1)).isoformat())
+    return "Нагадаю завтра", f"{nudge_text(t)}\nНагадаю завтра."
 
 
 def reminder_recipients(r: Reminder, family: Family) -> list[Member]:
@@ -235,6 +318,32 @@ def build_bot(
             return sent.message_id
 
         await deliver_due_reminders(db, family, datetime.now(UTC), send)
+
+    async def send_nudges(context: ContextTypes.DEFAULT_TYPE) -> None:
+        """At noon: one loose end per member, with «Зроблено» and «Завтра» under it."""
+
+        async def send(member: Member, t: Todo) -> int:
+            assert member.telegram_id is not None
+            sent = await context.bot.send_message(
+                member.telegram_id, nudge_text(t), reply_markup=nudge_keyboard(t.id)
+            )
+            return sent.message_id
+
+        await deliver_due_nudges(db, family, datetime.now(settings.tz), send)
+
+    async def on_nudge_tap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """«Зроблено» or «Завтра» under a nudge; the message is rewritten without buttons."""
+        query = update.callback_query
+        assert query and query.data
+        if member_of(update) is None:
+            await query.answer(PRIVATE_BOT)
+            return
+        toast, text = nudge_tap(db, query.data, datetime.now(settings.tz).date())
+        if text is not None:
+            await query.edit_message_text(text)
+        else:
+            await query.edit_message_reply_markup(None)
+        await query.answer(toast)
 
     async def today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """The morning digest, now, with «Відкрити» under it."""
@@ -404,9 +513,13 @@ def build_bot(
     app.add_handler(MessageHandler(allowed & filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(allowed & filters.Document.ALL, on_document))
     app.add_handler(MessageHandler(~allowed, stranger))
+    app.add_handler(CallbackQueryHandler(on_nudge_tap, pattern=NUDGE_PATTERN))
     assert app.job_queue
     app.job_queue.run_daily(
         send_digest, time=settings.digest_time.replace(tzinfo=settings.tz), name="digest"
+    )
+    app.job_queue.run_daily(
+        send_nudges, time=settings.nudge_time.replace(tzinfo=settings.tz), name="nudges"
     )
     app.job_queue.run_repeating(
         send_reminders, interval=REMINDER_INTERVAL, first=5, name="reminders"

@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from . import db as db_module
 from .db import Database
 from .family import Family
 from .llm import EventOp, ItemOp, LlmResult, ReminderOp, TodoOp
@@ -149,7 +150,10 @@ def normalize_project(value: str, db: Database) -> int | None:
 
 def _todo_fields(t: TodoOp, family: Family, db: Database) -> tuple[dict, list[str]]:
     """Validated fields present on the op, plus notes about anything dropped. An unknown
-    project raises OpError: the todo must not land in the wrong group or silently in none."""
+    project raises OpError: the todo must not land in the wrong group or silently in none.
+
+    A nudge (`remind_on`) is for a loose end, a todo with neither a day nor a project; a
+    day or a project given here takes the pending nudge with it, unless the op sets one."""
     fields: dict[str, str | int | None] = {}
     notes: list[str] = []
     given, project = _given(t.project)
@@ -170,7 +174,22 @@ def _todo_fields(t: TodoOp, family: Family, db: Database) -> tuple[dict, list[st
             notes.append(f"bad due {t.due!r} dropped")
         else:
             fields["due"] = due  # None: the deadline goes («без дати»)
+    given, remind_on = _given(t.remind_on)
+    if given:
+        if remind_on is not None and (remind_on := normalize_date(remind_on)) is None:
+            notes.append(f"bad remind_on {t.remind_on!r} dropped")
+        else:
+            fields["remind_on"] = remind_on  # None: no nudge («не нагадуй»)
+    elif fields.get("due") or fields.get("project_id"):
+        fields["remind_on"] = None
     return fields, notes
+
+
+def nudge_day(tz: ZoneInfo) -> str:
+    """The day a new loose end gets its nudge: tomorrow, in the family's timezone. The
+    clock is `db.utc_now_iso`, the one the tests freeze."""
+    now = datetime.fromisoformat(db_module.utc_now_iso().replace("Z", "+00:00"))
+    return (now.astimezone(tz).date() + timedelta(days=1)).isoformat()
 
 
 def _event_fields(e: EventOp, family: Family, tz: ZoneInfo) -> tuple[dict, list[str]]:
@@ -408,6 +427,10 @@ def apply_ops(
             if "text" not in fields:
                 applied.append(Applied("todo", "create", None, False, "empty text"))
                 continue
+            if "remind_on" not in fields:
+                # A loose end (no day, no project): the bot brings it up tomorrow at noon,
+                # once (see bot.deliver_due_nudges).
+                fields["remind_on"] = nudge_day(tz)
             tid = db.create_todo(
                 str(fields["text"] or ""),
                 owner=fields.get("owner"),  # type: ignore[arg-type]
@@ -415,6 +438,7 @@ def apply_ops(
                 source_message_id=message_id,
                 due=fields.get("due"),  # type: ignore[arg-type]
                 project_id=fields.get("project_id"),  # type: ignore[arg-type]
+                remind_on=fields.get("remind_on"),  # type: ignore[arg-type]
             )
             applied.append(Applied("todo", "create", tid, True, note))
         elif t.op == "update":
