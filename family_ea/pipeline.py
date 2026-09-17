@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -47,6 +48,10 @@ class Pipeline:
         self.llm = llm
         self.tz = tz
         self.store = store  # None: a photo is read but not kept (tests)
+        # What the rest of the family hears about a message's ops (the bot tells the others
+        # about a new event, see bot.announce_events). Set by whoever can send; None: nobody
+        # is told (`chat`, the web alone, tests).
+        self.announce: Callable[[Member, list[Applied]], Awaitable[None]] | None = None
 
     async def handle(
         self,
@@ -121,6 +126,11 @@ class Pipeline:
             log.warning("message %s: %s", message_id, warning)
             reply = f"{reply}\n\n{warning}"
         bot_message_id = self.db.insert_message("bot", author.id, reply)
+        if self.announce is not None:
+            try:
+                await self.announce(author, applied)
+            except Exception:  # the author's reply does not depend on the others being told
+                log.exception("message %s: announce failed", message_id)
         return Outcome(message_id, bot_message_id, reply, call.result, applied)
 
 

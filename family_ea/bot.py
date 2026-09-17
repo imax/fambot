@@ -35,12 +35,14 @@ from .context import (
     bucket_todos,
     build_agenda,
     digest_text,
+    event_line,
     parse_iso,
     today_lines,
 )
-from .db import REMINDER_REPEATS, Database, Member, Reminder, Todo
+from .db import REMINDER_REPEATS, Database, Event, Member, Reminder, Todo
 from .family import Family
 from .llm import Image
+from .ops import Applied
 from .pipeline import Pipeline
 from .transcribe import Transcriber
 
@@ -82,7 +84,8 @@ def help_text(settings: Settings) -> str:
         f"відповім з того, що знаю. Щоранку о "
         f"{when} надсилаю дайджест, а нагадую, коли попросиш. Про задачу без дати й проєкту "
         f"сам нагадаю наступного дня о {nudge}, одну на день, з кнопками «Зроблено» і "
-        f"«Завтра».\n\nКоманди:\n{commands}"
+        f"«Завтра». Коли хтось додає подію в календар, пишу про неї іншим."
+        f"\n\nКоманди:\n{commands}"
     )
 
 
@@ -174,6 +177,45 @@ def nudge_tap(db: Database, data: str, today: date) -> tuple[str, str | None]:
         return "Зроблено", f"✓ {t.text}"
     db.update_todo(t.id, remind_on=(today + timedelta(days=1)).isoformat())
     return "Нагадаю завтра", f"{nudge_text(t)}\nНагадаю завтра."
+
+
+def event_notice(author: Member, events: list[Event], family: Family, tz: ZoneInfo) -> str:
+    """'📅 Олег: нова подія в календарі' and a line per event. No verb after the name: the
+    members table does not know whether it is «додав» or «додала»."""
+    head = "нова подія в календарі" if len(events) == 1 else "нові події в календарі"
+    lines = [event_line(e, family, tz, with_id=False) for e in events]
+    return "\n".join([f"📅 {author.name}: {head}", *lines])
+
+
+async def announce_events(
+    db: Database,
+    family: Family,
+    author: Member,
+    applied: list[Applied],
+    send: Callable[[Member, str], Awaitable[int]],
+    tz: ZoneInfo = KYIV,
+) -> list[Member]:
+    """The events a message created, told to every other member: one text per message,
+    deterministic, stored as a bot message in their chat like any push. Changes and
+    cancellations are not announced. Returns who was told."""
+    ids = [a.id for a in applied if a.kind == "event" and a.op == "create" and a.ok and a.id]
+    events = [e for e in map(db.get_event, ids) if e is not None]
+    if not events:
+        return []
+    text = _clip(event_notice(author, events, family, tz))
+    told: list[Member] = []
+    for member in family.members:
+        if member.id == author.id or member.telegram_id is None:
+            continue
+        try:
+            tg_message_id = await send(member, text)
+        except Exception:
+            log.warning("event notice: could not message %s", member.id, exc_info=True)
+            continue
+        mid = db.insert_message("bot", member.id, text)
+        db.set_tg_message_id(mid, tg_message_id)
+        told.append(member)
+    return told
 
 
 def reminder_recipients(r: Reminder, family: Family) -> list[Member]:
@@ -535,6 +577,18 @@ def build_bot(
         await app.bot.set_my_commands(COMMANDS)
 
     app = Application.builder().token(settings.telegram_token).post_init(post_init).build()
+
+    async def announce(author: Member, applied: list[Applied]) -> None:
+        """A new event is told to the others, whether it came from Telegram or «🎙» on the web."""
+
+        async def send(member: Member, text: str) -> int:
+            assert member.telegram_id is not None
+            sent = await app.bot.send_message(member.telegram_id, text)
+            return sent.message_id
+
+        await announce_events(db, family, author, applied, send, settings.tz)
+
+    pipeline.announce = announce
     allowed = family_filter(family)
     app.add_handler(CommandHandler("start", start, filters=allowed))
     app.add_handler(CommandHandler("help", help_cmd, filters=allowed))

@@ -7,6 +7,8 @@ from family_ea.auth import verify
 from family_ea.bot import build_bot, family_filter, help_text, login_link, open_keyboard
 from family_ea.db import Database, Member
 from family_ea.family import Family
+from family_ea.pipeline import Pipeline
+from tests.conftest import KYIV
 from tests.test_web import _settings
 
 
@@ -30,7 +32,9 @@ def test_family_filter_is_live(db: Database) -> None:
 
 
 def test_build_bot_registers_handlers_and_digest_job(db: Database, family: Family) -> None:
-    app = build_bot(_settings(telegram_token="123:abc"), family, db, None, None)  # type: ignore[arg-type]
+    pipeline = Pipeline(db, family, None, KYIV)  # type: ignore[arg-type]
+    app = build_bot(_settings(telegram_token="123:abc"), family, db, pipeline, None)
+    assert pipeline.announce is not None  # a new event is told to the others through the bot
     assert len(app.handlers[0]) == 12
     assert app.job_queue
     assert sorted(j.name for j in app.job_queue.jobs()) == ["digest", "nudges", "reminders"]

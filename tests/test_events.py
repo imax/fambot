@@ -266,3 +266,50 @@ def test_web_events(db: Database, family: Family) -> None:
     assert 'filename="stomatoloh.ics"' in ics.headers["content-disposition"]
     assert client.get("/events/999.ics", headers=_auth()).status_code == 404
     assert client.get(f"/events/{eid}.ics").status_code == 401
+
+
+# --- a new event is told to the others ------------------------------------------
+
+
+async def test_a_new_event_is_told_to_the_other_member(db: Database, family: Family) -> None:
+    from family_ea.bot import announce_events
+
+    oleh = family.get("oleh")
+    assert oleh
+    mid = db.insert_message("oleh", "oleh", "...")
+    result = LlmResult.model_validate(
+        {
+            "reply": "",
+            "events": [
+                {
+                    "op": "create",
+                    "text": "Стоматолог",
+                    "who": "anna",
+                    "starts_at": "2026-09-20T15:00:00+03:00",
+                },
+                {"op": "create", "text": "Без дати"},  # fails: nothing to announce
+            ],
+            "todos": [{"op": "create", "text": "Купити пасту"}],
+        }
+    )
+    applied = apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+    sent: list[tuple[str, str]] = []
+
+    async def send(member: Member, text: str) -> int:
+        sent.append((member.id, text))
+        return 77
+
+    told = await announce_events(db, family, oleh, applied, send, KYIV)
+    text = "📅 Олег: нова подія в календарі\n20.09 15:00 Стоматолог (Анна)"
+    assert [m.id for m in told] == ["anna"] and sent == [("anna", text)]
+    stored = db.list_messages(limit=1)[0]
+    assert (stored.user_id, stored.chat_with, stored.raw_text) == ("bot", "anna", text)
+    assert stored.tg_message_id == 77
+
+    # An update or a cancel is not news; neither is a message without events.
+    result = LlmResult.model_validate(
+        {"reply": "", "events": [{"op": "update", "id": 1, "text": "Стоматолог, огляд"}]}
+    )
+    applied = apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+    assert applied[0].ok and await announce_events(db, family, oleh, applied, send, KYIV) == []
+    assert len(sent) == 1

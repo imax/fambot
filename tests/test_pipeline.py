@@ -143,3 +143,26 @@ async def test_pipeline_says_under_the_reply_what_did_not_go_through(
     assert outcome.reply == "Є"
     outcome = await Pipeline(db, family, llm, KYIV).handle(oleh, "прибери примітку")
     assert outcome.reply == "Є\n\n⚠️ Не вийшло: змінити річ #1."
+
+
+async def test_pipeline_announces_and_survives_a_failed_announce(
+    db: Database, family: Family, oleh: Member
+) -> None:
+    llm = FakeLlm(
+        LlmResult.model_validate(
+            {
+                "reply": "Ок.",
+                "events": [{"op": "create", "text": "Кіно", "date_from": "2026-09-20"}],
+            }
+        )
+    )
+    pipeline = Pipeline(db, family, llm, KYIV)
+    heard: list[tuple[str, list[str]]] = []
+
+    async def announce(author: Member, applied: list) -> None:
+        heard.append((author.id, [a.kind for a in applied]))
+        raise RuntimeError("telegram is down")
+
+    pipeline.announce = announce
+    outcome = await pipeline.handle(oleh, "в суботу кіно")
+    assert heard == [("oleh", ["event"])] and outcome.reply == "Ок." and outcome.error is None

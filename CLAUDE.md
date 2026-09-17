@@ -214,7 +214,13 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   member per day (the newest first), with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the
   web) and «Завтра» (`todos.remind_on` = tomorrow); no tap means silence. `remind_on`
   is set by code on create (ops), cleared when a day or a project arrives, and the LLM
-  sets it only on an explicit ask (`TodoOp.remind_on`). All three are stored as bot
+  sets it only on an explicit ask (`TodoOp.remind_on`).
+  An event notice (2026-09-17) tells every other member about an event a message created,
+  right after the ops run: «📅 Олег: нова подія в календарі» and the event line, no verb
+  after the name (the members table has no gender). `Pipeline.announce` is a hook that
+  `build_bot` sets (`bot.announce_events`), so «🎙» on the web announces too and `chat`
+  does not; only a successful `create`, never an update or a cancel, and nothing for
+  todos or items. All four are stored as bot
   messages in each recipient's chat so replies to them have context. Anything else the
   bot sends on its own must follow the same two rules.
 - **Web identity comes from the bot.** No passwords: `/web` (and «Відкрити» under the digest
