@@ -520,12 +520,12 @@ def build_todo_lists(
     """Sort the open todos out for the home page.
 
     Todos past their day are overdue, oldest first; the others with a day come by day,
-    nearest first («Не забути» on the web); the undated keep the order they come in:
+    nearest first («Задачі» on the web); the undated keep the order they come in:
     `open_todos()` gives the hand-set one.
 
     The pending reminders sit among the dated todos, «⏰» for «☐»: on their day after its
-    todos, by time, the note 'завтра 19:30 · щодня'. One whose time passed but is still
-    pending (about to be sent) counts as today's.
+    todos, by time, the note 'завтра 19:30 · щодня'; the repeating ones at the very end.
+    One whose time passed but is still pending (about to be sent) counts as today's.
     """
     tz = now.tzinfo
     assert isinstance(tz, ZoneInfo)
@@ -566,7 +566,11 @@ def build_todo_lists(
             filter(None, [f"{due_note(day, today)} {at:%H:%M}", REPEAT_LABELS.get(r.repeat or "")])
         )
         who = family.display_name(r.who) if r.who else "усім"
-        dated.append(((day, 1, at.timestamp()), Row("reminder", r.id, r.text, note=note, who=who)))
+        # A repeating one comes round again whatever anyone does: after everything with a day.
+        first = date.max if r.repeat in REPEAT_LABELS else day
+        dated.append(
+            ((first, 1, at.timestamp()), Row("reminder", r.id, r.text, note=note, who=who))
+        )
 
     t.overdue = [row for _, row in sorted(overdue, key=lambda pair: pair[0])]
     t.dated = [row for _, row in sorted(dated, key=lambda pair: pair[0])]

@@ -108,10 +108,10 @@ def test_build_todo_lists(family: Family) -> None:
     assert [(r.kind, r.id, r.note, r.who) for r in t.dated] == [
         ("todo", 3, "сьогодні", ""),
         ("reminder", 2, "сьогодні 08:00", "усім"),
-        ("reminder", 4, "сьогодні 19:30 · щодня", "усім"),
         ("todo", 1, "завтра", "Анна"),
         ("reminder", 1, "завтра 08:00", "Анна"),
         ("todo", 5, "14.09", ""),
+        ("reminder", 4, "сьогодні 19:30 · щодня", "усім"),  # repeats: after everything
     ]
     assert all(r.time == "" and r.ics_url is None for r in t.dated if r.kind == "reminder")
     assert [g.name for g in t.undated] == [""]  # no projects: one unnamed group
@@ -163,8 +163,8 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     home = html.unescape(client.get("/", headers=_auth()).text)  # «п'ятниця» is escaped
     assert home.index('<h2 class="overdue">Прострочено</h2>') < home.index("Купити квіти")
     assert "· 09.09 · Анна" in home
-    # «Не забути»: nothing due from today on, so the pending reminder alone, «⏰» for «☐»
-    ahead = home[home.index("<h2>Не забути</h2>") : home.index("<h2>Без дати</h2>")]
+    # «Задачі»: nothing due from today on, so the pending reminder alone, «⏰» for «☐»
+    ahead = home[home.index("<h2>Задачі</h2>") : home.index("<h2>Без дати</h2>")]
     assert '<span class="mark">⏰</span>Стоматолог о 15:30' in ahead
     assert "· завтра 14:30 · усім" in ahead and "☐" not in ahead
     # the board first, then the agenda, then the todos
@@ -354,7 +354,7 @@ def test_web_home_groups_undated_todos_by_project(
     assert lists.count('<li class="empty">нічого') == 1  # Документи
     assert lists.count('<li class="empty" hidden>нічого') == 3
     assert f'data-project="{car}"' in lists and 'data-project=""' in lists
-    dated = page[page.index("<h2>Не забути</h2>") : page.index("<h2>Калинівка")]
+    dated = page[page.index("<h2>Задачі</h2>") : page.index("<h2>Калинівка")]
     assert "Віза" in dated and "· Документи" in dated
 
     # A drag into another list posts that list's order with its project: the todo moves.

@@ -27,7 +27,7 @@
 </details>
 {% endif %}
 </div>
-{# the todos: past their day, with one («Не забути», the pending reminders among them as
+{# the todos: past their day, with one («Задачі», the pending reminders among them as
    «⏰» rows nobody taps), without one (drag «⋮⋮» to order these) #}
 {% if todos.overdue %}
 <h2 class="overdue">Прострочено</h2>
@@ -36,7 +36,7 @@
 </ul>
 {% endif %}
 {% if todos.dated %}
-<h2>Не забути</h2>
+<h2>Задачі</h2>
 <ul class="rows">
   {% for r in todos.dated %}{% include "_row.html" %}{% endfor %}
 </ul>

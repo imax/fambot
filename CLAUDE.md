@@ -74,7 +74,7 @@ family_ea/
                 login link) under the digest, /today and /web
   web.py        FastAPI + Jinja: GET /login?t= (the bot's link; sets the cookie), GET / (the
                 boards, the calendar of events, the todos with the pending reminders
-                among the dated ones under «Не забути», the last done ones; ?q= searches), GET /items (Речі:
+                among the dated ones under «Задачі», the last done ones; ?q= searches), GET /items (Речі:
                 places, recent; ?place= ?owner= list), GET /items/:id (photos, history),
                 GET /dreams (Мрії: open ones, then fulfilled; read-only), GET /notes
                 (Нотатки: the LLM's Markdown rendered, its source photos; read-only),

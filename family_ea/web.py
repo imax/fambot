@@ -178,7 +178,7 @@ def build_web(
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
         """The boards (the viewer's own first), the calendar (two weeks of days with an
-        event, today always, the rest under «далі»), the todos (overdue; «Не забути»: the
+        event, today always, the rest under «далі»), the todos (overdue; «Задачі»: the
         ones with a day and the pending reminders; without a day by project), the last
         done ones; `?q=` searches instead: events, todos, items, and the sections of the
         notes page."""
