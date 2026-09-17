@@ -13,11 +13,10 @@
   {% endfor %}
 </ul>
 {% endfor %}
-{# the calendar: every day with a planned event or a pending reminder, today always, like
+{# the calendar: every day with a planned event, today always, like
    the phone's calendar widget: a small heading per day, the time on the left next to the
    text. Two weeks in full; what comes after is one line («далі: 07.10 Стрижка · …») that
-   unfolds into the same days. Read-only: events and reminders are made and moved in the
-   chat #}
+   unfolds into the same days. Read-only: events are made and moved in the chat #}
 <h2>Календар</h2>
 <div class="agenda">
 {% with days = calendar.days %}{% include "_days.html" %}{% endwith %}
@@ -28,7 +27,8 @@
 </details>
 {% endif %}
 </div>
-{# the todos: past their deadline, with one, without one (drag «⋮⋮» to order these) #}
+{# the todos: past their day, with one («Не забути», the pending reminders among them as
+   «⏰» rows nobody taps), without one (drag «⋮⋮» to order these) #}
 {% if todos.overdue %}
 <h2 class="overdue">Прострочено</h2>
 <ul class="rows overdue">
@@ -36,7 +36,7 @@
 </ul>
 {% endif %}
 {% if todos.dated %}
-<h2>З датою</h2>
+<h2>Не забути</h2>
 <ul class="rows">
   {% for r in todos.dated %}{% include "_row.html" %}{% endfor %}
 </ul>

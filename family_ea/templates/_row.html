@@ -1,5 +1,5 @@
 <li class="{{ r.kind }}" data-id="{{ r.id }}">
-  {%- if r.kind != 'todo' %}<span class="time{% if r.all_day %} allday{% endif %}">{{ r.time }}</span>{% endif %}
+  {%- if r.time %}<span class="time{% if r.all_day %} allday{% endif %}">{{ r.time }}</span>{% endif %}
   <span>
     {%- if r.kind == 'todo' %}<span class="mark" title="Торкнись, коли зроблено">☐</span><span class="text">{{ r.text }}</span>
     {%- elif r.kind == 'reminder' %}<span class="mark">⏰</span>{{ r.text }}

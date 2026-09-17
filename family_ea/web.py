@@ -178,10 +178,10 @@ def build_web(
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
         """The boards (the viewer's own first), the calendar (two weeks of days with an
-        event or a pending reminder, today always, the rest under «далі»), the todos
-        (overdue, with a deadline, without
-        one by project), the last done ones; `?q=` searches instead: events, todos, items,
-        and the sections of the notes page."""
+        event, today always, the rest under «далі»), the todos (overdue; «Не забути»: the
+        ones with a day and the pending reminders; without a day by project), the last
+        done ones; `?q=` searches instead: events, todos, items, and the sections of the
+        notes page."""
         if q and q.strip():
             q = q.strip()
             pattern = word_pattern(q)
@@ -201,8 +201,14 @@ def build_web(
                 },
             )
         now = datetime.now(settings.tz)
-        todos = build_todo_lists(db.open_todos(), now, family, projects=db.open_projects())
-        calendar = build_calendar(db.planned_events(), db.pending_reminders(), now, family)
+        todos = build_todo_lists(
+            db.open_todos(),
+            now,
+            family,
+            projects=db.open_projects(),
+            reminders=db.pending_reminders(),
+        )
+        calendar = build_calendar(db.planned_events(), now, family)
         return templates.TemplateResponse(
             request,
             "index.html",

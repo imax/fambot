@@ -421,10 +421,10 @@ class Group:
 
 @dataclass
 class TodoLists:
-    """The open todos on the web home: past their deadline, with a deadline from today on,
-    and without one, in the hand-set order, a group per open project (in the order the
-    projects were made) and the ones without a project last; one group with no name when
-    there are no projects. The calendar is `build_calendar`."""
+    """The open todos on the web home: past their day, with a day from today on (and the
+    pending reminders among them), and without one, in the hand-set order, a group per
+    open project (in the order the projects were made) and the ones without a project
+    last; one group with no name when there are no projects. The calendar is `build_calendar`."""
 
     overdue: list[Row] = field(default_factory=list)
     dated: list[Row] = field(default_factory=list)
@@ -451,16 +451,14 @@ def due_note(due: date, today: date) -> str:
     return f"{due:%d.%m}"
 
 
-def build_calendar(
-    events: list[Event], reminders: list[Reminder], now: datetime, family: Family
-) -> Calendar:
-    """The calendar on the web home: every day with a planned event or a pending reminder,
-    today always, even empty; the days past `HORIZON_DAYS` go to `later`, shown as one line
-    until someone unfolds them.
+def build_calendar(events: list[Event], now: datetime, family: Family) -> Calendar:
+    """The calendar on the web home: every day with a planned event, today always, even
+    empty; the days past `HORIZON_DAYS` go to `later`, shown as one line until someone
+    unfolds them. Events only, where someone has to be: a reminder is a push to do
+    something and sits with the dated todos (`build_todo_lists`, 2026-09-17).
 
-    A multi-day event still running sits on today with «до …»; a reminder whose time passed
-    but is still pending (about to be sent) sits on today too. Within a day: all-day events,
-    then timed things by time.
+    A multi-day event still running sits on today with «до …». Within a day: all-day
+    events, then timed ones by time.
     """
     tz = now.tzinfo
     assert isinstance(tz, ZoneInfo)
@@ -499,20 +497,6 @@ def build_calendar(
         )
         place(day, (1, start.timestamp(), 0, e.id) if e.starts_at else (0, 0.0, 0, e.id), row)
 
-    for r in reminders:
-        if not r.is_pending:
-            continue
-        at = parse_iso(r.at).astimezone(tz)
-        row = Row(
-            "reminder",
-            r.id,
-            r.text,
-            time=f"{at:%H:%M}",
-            note=REPEAT_LABELS.get(r.repeat or "", ""),
-            who=family.display_name(r.who) if r.who else "усім",
-        )
-        place(max(at.date(), today), (1, at.timestamp(), 1, r.id), row)
-
     horizon = today + timedelta(days=HORIZON_DAYS)
     cal = Calendar()
     for day in sorted(by_day):
@@ -531,13 +515,20 @@ def build_todo_lists(
     now: datetime,
     family: Family,
     projects: list[Project] | None = None,
+    reminders: list[Reminder] | None = None,
 ) -> TodoLists:
     """Sort the open todos out for the home page.
 
-    Todos past their deadline are overdue, oldest first; the others with a deadline come by
-    deadline, nearest first; the undated keep the order they come in: `open_todos()` gives
-    the hand-set one.
+    Todos past their day are overdue, oldest first; the others with a day come by day,
+    nearest first («Не забути» on the web); the undated keep the order they come in:
+    `open_todos()` gives the hand-set one.
+
+    The pending reminders sit among the dated todos, «⏰» for «☐»: on their day after its
+    todos, by time, the note 'завтра 19:30 · щодня'. One whose time passed but is still
+    pending (about to be sent) counts as today's.
     """
+    tz = now.tzinfo
+    assert isinstance(tz, ZoneInfo)
     today = now.date()
     overdue: list[tuple[tuple, Row]] = []
     dated: list[tuple[tuple, Row]] = []
@@ -564,7 +555,18 @@ def build_todo_lists(
             ics_url=f"/todos/{td.id}.ics",
             project=names.get(td.project_id, "") if td.project_id is not None else "",
         )
-        (overdue if late else dated).append(((due, td.id), row))
+        (overdue if late else dated).append(((due, 0, td.id), row))
+
+    for r in reminders or []:
+        if not r.is_pending:
+            continue
+        at = parse_iso(r.at).astimezone(tz)
+        day = max(at.date(), today)
+        note = " · ".join(
+            filter(None, [f"{due_note(day, today)} {at:%H:%M}", REPEAT_LABELS.get(r.repeat or "")])
+        )
+        who = family.display_name(r.who) if r.who else "усім"
+        dated.append(((day, 1, at.timestamp()), Row("reminder", r.id, r.text, note=note, who=who)))
 
     t.overdue = [row for _, row in sorted(overdue, key=lambda pair: pair[0])]
     t.dated = [row for _, row in sorted(dated, key=lambda pair: pair[0])]
