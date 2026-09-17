@@ -112,7 +112,7 @@ def test_digest_with_events(family: Family) -> None:
     assert digest_text(a, b, family, KYIV) == (
         "Сьогодні:\n- 10:00–11:00 Сніданок з командою (Олег)\n"
         "Завтра:\n- 15:30 Стоматолог (Анна)\n"
-        "Задачі на сьогодні:\n- Забрати форму (Анна, до 10.09)"
+        "Задачі на сьогодні:\n- Забрати форму (Анна, 10.09)"
     )
     assert digest_text(Agenda(), bucket_todos([], NOW), family, KYIV) is None
 

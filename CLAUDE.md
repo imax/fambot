@@ -117,7 +117,7 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   (`files_of_kind`), read-only. Facts stay the human's page; the notes are the LLM's.
 - **Events and todos are separate tables, not a `kind` column.** An event happens at a
   time or on a day and then passes (never overdue, only cancelled); a todo is done or
-  dropped, can be overdue, and carries at most a deadline day (`due`), never a time of
+  dropped, can be overdue, and carries at most one day (`due`), never a time of
   day: anything with a clock time is an event. (Until 2026-09-12 a todo was a
   «commitment» with `due_at` or a date window, and the LLM filed appointments there; the
   single day field is what keeps the two apart.) Different lifecycles, different data. The
@@ -213,8 +213,11 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   (10:00 since the evening of 2026-09-16, 12:30 before) the day after it was filed, to its owner or to everyone, at most one per
   member per day (the newest first), with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the
   web) and «Завтра» (`todos.remind_on` = tomorrow); no tap means silence. `remind_on`
-  is set by code on create (ops), cleared when a day or a project arrives, and the LLM
-  sets it only on an explicit ask (`TodoOp.remind_on`).
+  is set by code alone (on create in ops, by «Завтра») and cleared when a day or a project
+  arrives; it is shown nowhere. From 2026-09-16 to 2026-09-17 the LLM could set it too
+  (`TodoOp.remind_on`, «нагадай про це в четвер», a «🔔 25.09» on the web): two days on one
+  todo, a deadline and a nudge day, was more than anyone could keep apart, so a todo has
+  one day, `due`, shown without «до», and «нагадай про це в четвер» sets it.
   An event notice (2026-09-17) tells every other member about an event a message created,
   right after the ops run: «📅 Олег: нова подія в календарі» and the event line, no verb
   after the name (the members table has no gender). `Pipeline.announce` is a hook that

@@ -17,7 +17,7 @@ from family_ea.bot import (
 from family_ea.context import todo_line
 from family_ea.db import Database, Member, Todo
 from family_ea.family import Family
-from family_ea.llm import LlmResult
+from family_ea.llm import LlmResult, TodoOp
 from family_ea.ops import apply_ops
 from tests.conftest import KYIV
 
@@ -42,9 +42,6 @@ def test_a_loose_end_gets_a_nudge_for_tomorrow(
             {"op": "create", "text": "Подзвонити по клініках"},
             {"op": "create", "text": "Замовити воду", "due": "2026-09-20"},
             {"op": "create", "text": "Поміняти масло", "project": "Авто"},
-            {"op": "create", "text": "Віза", "remind_on": "2026-09-25"},
-            {"op": "create", "text": "Без нагадування", "remind_on": "-"},
-            {"op": "create", "text": "Крива дата", "remind_on": "колись"},
         ],
     )
     assert all(a.ok for a in applied)
@@ -52,26 +49,16 @@ def test_a_loose_end_gets_a_nudge_for_tomorrow(
         "2026-09-17",  # the day after it was filed, in Kyiv
         None,  # a day: the digest has it
         None,  # a project: backlog
-        "2026-09-25",  # asked for
-        None,
-        "2026-09-17",  # the bad day is dropped, the default stands
     ]
-    assert applied[5].note == "bad remind_on 'колись' dropped"
+    # The nudge day is the code's alone: a todo has one day, `due`, and the LLM has no
+    # field for another (2026-09-17).
+    assert "remind_on" not in TodoOp.model_fields
 
-    # A day or a project given later takes the nudge with it; an explicit day is kept;
-    # «-» drops it; a text change leaves it.
+    # A day given later takes the nudge with it; a text change leaves it.
     (a,) = _apply(db, family, [{"op": "update", "id": 1, "text": "Подзвонити в клініку"}])
     assert a.ok and db.get_todo(1).remind_on == "2026-09-17"
     _apply(db, family, [{"op": "update", "id": 1, "due": "2026-09-19"}])
     assert db.get_todo(1).remind_on is None
-    _apply(db, family, [{"op": "update", "id": 4, "project": "Авто", "remind_on": "2026-09-30"}])
-    assert db.get_todo(4).remind_on == "2026-09-30"
-    _apply(db, family, [{"op": "update", "id": 4, "remind_on": "-"}])
-    assert db.get_todo(4).remind_on is None
-    _apply(db, family, [{"op": "update", "id": 6, "remind_on": "2026-09-18T12:00:00+03:00"}])
-    assert db.get_todo(6).remind_on == "2026-09-18"  # a day, never a time
-    (bad,) = _apply(db, family, [{"op": "update", "id": 6, "remind_on": "?"}])
-    assert not bad.ok and "nothing to update" in bad.note
 
 
 def test_old_todos_get_the_remind_on_column(tmp_path: Path) -> None:
@@ -95,12 +82,12 @@ def test_old_todos_get_the_remind_on_column(tmp_path: Path) -> None:
     Database(path).close()
 
 
-def test_the_llm_sees_the_nudge_day(db: Database, family: Family) -> None:
+def test_the_nudge_day_is_shown_to_nobody(db: Database, family: Family) -> None:
     tid = db.create_todo("Віза", owner="oleh", created_by="oleh", source_message_id=0)
     db.update_todo(tid, remind_on="2026-09-17")
     t = db.get_todo(tid)
-    assert t and todo_line(t, family) == "[#1] Віза (Олег, нагадаю 17.09)"
-    assert todo_line(t, family, with_id=False) == "Віза (Олег)"  # the digest does not
+    assert t and todo_line(t, family) == "[#1] Віза (Олег)"
+    assert todo_line(t, family, with_id=False) == "Віза (Олег)"
 
 
 def _new(db: Database, text: str, owner: str | None, remind_on: str) -> Todo:
@@ -182,7 +169,7 @@ def test_the_buttons(db: Database) -> None:
     assert db.get_todo(t.id).status == "done"
 
 
-def test_the_web_shows_the_nudge_to_come(
+def test_the_web_does_not_show_the_nudge(
     db: Database, family: Family, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fastapi.testclient import TestClient
@@ -192,14 +179,7 @@ def test_the_web_shows_the_nudge_to_come(
 
     freeze_web_clock(monkeypatch, datetime(2026, 9, 16, 9, 0, tzinfo=KYIV))
     soon = _new(db, "Клініки", "anna", "2026-09-17")
-    later = _new(db, "Віза", "oleh", "2026-09-25")
-    missed = _new(db, "Масаж", "oleh", "2026-09-15")
-    quiet = _new(db, "Тихо", "oleh", "2026-09-20")
-    db.update_todo(quiet.id, remind_on=None)
     client = TestClient(build_web(_settings(), family, db))
     page = client.get("/", headers=_auth()).text
-    row = lambda t: page[page.index(f'data-id="{t.id}"') :].split("</li>")[0]  # noqa: E731
-    assert "· 🔔 завтра · Анна" in row(soon)
-    assert "· 🔔 25.09 · Олег" in row(later)
-    assert "· 🔔 сьогодні · Олег" in row(missed)
-    assert "🔔" not in row(quiet)
+    row = page[page.index(f'data-id="{soon.id}"') :].split("</li>")[0]
+    assert "Клініки" in row and "· Анна" in row and "🔔" not in page

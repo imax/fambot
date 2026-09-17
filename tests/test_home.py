@@ -103,12 +103,12 @@ def test_build_todo_lists(family: Family) -> None:
     ]
     t = build_todo_lists(todos, NOW, family)
 
-    assert [(r.id, r.note) for r in t.overdue] == [(4, "до 01.09"), (2, "до 09.09")]
+    assert [(r.id, r.note) for r in t.overdue] == [(4, "01.09"), (2, "09.09")]
     assert t.overdue[1].ics_url == "/todos/2.ics" and t.overdue[1].time == ""
     assert [(r.id, r.note, r.who) for r in t.dated] == [
         (3, "сьогодні", ""),
         (1, "завтра", "Анна"),
-        (5, "до 14.09", ""),
+        (5, "14.09", ""),
     ]
     assert [g.name for g in t.undated] == [""]  # no projects: one unnamed group
     assert [(r.id, r.who, r.ics_url) for r in t.undated[0].rows] == [(6, "Олег", None)]
@@ -158,8 +158,8 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
 
     home = html.unescape(client.get("/", headers=_auth()).text)  # «п'ятниця» is escaped
     assert home.index('<h2 class="overdue">Прострочено</h2>') < home.index("Купити квіти")
-    assert "· до 09.09 · Анна" in home
-    assert "<h2>З дедлайном</h2>" not in home  # nothing due from today on
+    assert "· 09.09 · Анна" in home
+    assert "<h2>З датою</h2>" not in home  # nothing due from today on
     # the board first, then the agenda, then the todos
     assert (
         home.index("<h2>На сьогодні</h2>")
@@ -330,7 +330,7 @@ def test_web_home_groups_undated_todos_by_project(
     new("Свердловина", home)
     new("XC90", car)
     new("Окрема")
-    new("Віза", empty, due="2026-09-20")  # dated: in «З дедлайном», tagged, not in the group
+    new("Віза", empty, due="2026-09-20")  # dated: in «З датою», tagged, not in the group
     client = TestClient(build_web(_settings(), family, db))
     page = client.get("/", headers=_auth()).text
     lists = page[page.index("<h2>Без дати</h2>") : page.index("<script>")]
@@ -347,7 +347,7 @@ def test_web_home_groups_undated_todos_by_project(
     assert lists.count('<li class="empty">нічого') == 1  # Документи
     assert lists.count('<li class="empty" hidden>нічого') == 3
     assert f'data-project="{car}"' in lists and 'data-project=""' in lists
-    dated = page[page.index("<h2>З дедлайном</h2>") : page.index("<h2>Калинівка")]
+    dated = page[page.index("<h2>З датою</h2>") : page.index("<h2>Калинівка")]
     assert "Віза" in dated and "· Документи" in dated
 
     # A drag into another list posts that list's order with its project: the todo moves.

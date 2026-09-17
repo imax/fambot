@@ -159,8 +159,8 @@ def _todo_fields(t: TodoOp, family: Family, db: Database) -> tuple[dict, list[st
     """Validated fields present on the op, plus notes about anything dropped. An unknown
     project raises OpError: the todo must not land in the wrong group or silently in none.
 
-    A nudge (`remind_on`) is for a loose end, a todo with neither a day nor a project; a
-    day or a project given here takes the pending nudge with it, unless the op sets one."""
+    A nudge (`remind_on`, set by code only) is for a loose end, a todo with neither a day
+    nor a project; a day or a project given here takes the pending nudge with it."""
     fields: dict[str, str | int | None] = {}
     notes: list[str] = []
     given, project = _given(t.project)
@@ -181,13 +181,7 @@ def _todo_fields(t: TodoOp, family: Family, db: Database) -> tuple[dict, list[st
             notes.append(f"bad due {t.due!r} dropped")
         else:
             fields["due"] = due  # None: the deadline goes («без дати»)
-    given, remind_on = _given(t.remind_on)
-    if given:
-        if remind_on is not None and (remind_on := normalize_date(remind_on)) is None:
-            notes.append(f"bad remind_on {t.remind_on!r} dropped")
-        else:
-            fields["remind_on"] = remind_on  # None: no nudge («не нагадуй»)
-    elif fields.get("due") or fields.get("project_id"):
+    if fields.get("due") or fields.get("project_id"):
         fields["remind_on"] = None
     return fields, notes
 

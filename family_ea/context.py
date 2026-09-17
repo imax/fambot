@@ -185,11 +185,9 @@ def todo_line(
     if t.owner:
         meta.append(family.display_name(t.owner))
     if t.due:
-        meta.append(f"до {fmt_due(t)}")
+        meta.append(fmt_due(t))
     if projects and t.project_id in projects:
         meta.append(f"проєкт: {projects[t.project_id]}")
-    if t.remind_on and with_id:  # the LLM sees the nudge to come; the digest does not
-        meta.append(f"нагадаю {fmt_date(t.remind_on)}")
     if meta:
         parts.append(f" ({', '.join(meta)})")
     return "".join(parts)
@@ -443,23 +441,14 @@ def day_title(d: date, today: date) -> str:
     return f"{name.capitalize()} {d:%d.%m}"
 
 
-def nudge_note(day: date, today: date) -> str:
-    """When the bot brings a todo up: 'завтра', 'сьогодні' (before noon, or missed),
-    '19.09'; a day already past shows as 'сьогодні' too, the job sends it at the next noon."""
-    if day <= today:
-        return "сьогодні"
-    if day == today + timedelta(days=1):
-        return "завтра"
-    return f"{day:%d.%m}"
-
-
 def due_note(due: date, today: date) -> str:
-    """A todo's deadline next to its text: 'сьогодні', 'завтра', else 'до 19.09'."""
+    """A todo's day next to its text: 'сьогодні', 'завтра', else '19.09'. No «до»: a todo
+    has one day, there is no deadline apart from it (2026-09-17)."""
     if due == today:
         return "сьогодні"
     if due == today + timedelta(days=1):
         return "завтра"
-    return f"до {due:%d.%m}"
+    return f"{due:%d.%m}"
 
 
 def build_calendar(
@@ -562,12 +551,7 @@ def build_todo_lists(
             continue
         who = family.display_name(td.owner) if td.owner else ""
         if not td.due:
-            note = (
-                f"🔔 {nudge_note(date.fromisoformat(td.remind_on), today)}" if td.remind_on else ""
-            )
-            groups.setdefault(td.project_id, []).append(
-                Row("todo", td.id, td.text, note=note, who=who)
-            )
+            groups.setdefault(td.project_id, []).append(Row("todo", td.id, td.text, who=who))
             continue
         due = date.fromisoformat(td.due)
         late = due < today
@@ -575,7 +559,7 @@ def build_todo_lists(
             "todo",
             td.id,
             td.text,
-            note=f"до {due:%d.%m}" if late else due_note(due, today),
+            note=f"{due:%d.%m}" if late else due_note(due, today),
             who=who,
             ics_url=f"/todos/{td.id}.ics",
             project=names.get(td.project_id, "") if td.project_id is not None else "",

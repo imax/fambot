@@ -90,8 +90,8 @@ def test_digest_text(family: Family) -> None:
     b = bucket_todos(items, now)
     text = digest_text(Agenda(), b, family, KYIV)
     assert text == (
-        "Задачі на сьогодні:\n- Стоматолог (Анна, до 10.09)\n"
-        "Прострочено:\n- Поговорити з Марією (до 09.09)"
+        "Задачі на сьогодні:\n- Стоматолог (Анна, 10.09)\n"
+        "Прострочено:\n- Поговорити з Марією (09.09)"
     )
     assert "Купити лампочки" not in text and "[#" not in text  # no undated ones, no ids
 
@@ -204,7 +204,7 @@ def test_build_context_sections(
     ctx = build_context(db, family, now, oleh, "Хто ремонтував котел?")
     assert "2026-09-10 08:00 (Europe/Kyiv), четвер" in ctx
     assert "## Сім'я (пишуть боту; решта людей — у фактах)\n- oleh: Олег" in ctx
-    assert "[#1] Поговорити з пані Марією (Олег, до 10.09)" in ctx
+    assert "[#1] Поговорити з пані Марією (Олег, 10.09)" in ctx
     assert "Задачі на сьогодні:\n- [#1]" in ctx
     assert "## Події (минулі за 7 днів і всі майбутні)\nнемає" in ctx
     assert "journal" not in ctx  # the old log; the notes page has its own section
