@@ -4,7 +4,7 @@ There is no password. `/web` in Telegram (and «Відкрити» under the dig
 a member a link to `/login?t=…`; opening it sets a long-lived signed cookie. Read-only except
 `/facts` and `/family`, the two things a human edits by hand, and three things about a
 todo, all through the db methods the LLM ops use: done («☐»), the text («✎») and the
-order of the undated ones (dragged), on the home page. The agenda on the home page (the
+order of the undated ones (dragged), on the home page. The calendar on the home page (the
 days ahead), the dreams (`/dreams`) and the notes page (`/notes`, the LLM's Markdown
 rendered, its source photos under it) are only read.
 
@@ -177,8 +177,9 @@ def build_web(
     async def index(
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
-        """The boards (the viewer's own first), the agenda (the days ahead with an event or
-        a pending reminder, today always), the todos (overdue, with a deadline, without
+        """The boards (the viewer's own first), the calendar (two weeks of days with an
+        event or a pending reminder, today always, the rest under «далі»), the todos
+        (overdue, with a deadline, without
         one by project), the last done ones; `?q=` searches instead: events, todos, items,
         and the sections of the notes page."""
         if q and q.strip():
@@ -201,12 +202,13 @@ def build_web(
             )
         now = datetime.now(settings.tz)
         todos = build_todo_lists(db.open_todos(), now, family, projects=db.open_projects())
+        calendar = build_calendar(db.planned_events(), db.pending_reminders(), now, family)
         return templates.TemplateResponse(
             request,
             "index.html",
             {
                 "q": "",
-                "days": build_calendar(db.planned_events(), db.pending_reminders(), now, family),
+                "calendar": calendar,
                 "todos": todos,
                 "today": board_blocks(db.current_today_lists(), family, member.id, now),
                 "done": db.recent_done_todos(DONE_SHOWN),

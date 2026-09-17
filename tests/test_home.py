@@ -62,16 +62,19 @@ def test_build_calendar(family: Family) -> None:
         _r(2, text="Давно", at="2026-09-01T05:00:00Z"),  # pending but past: today
         _r(3, text="Надіслане", at="2026-09-11T05:00:00Z", status="sent"),
     ]
-    days = build_calendar(events, reminders, NOW, family)
+    cal = build_calendar(events, reminders, NOW, family)
 
-    assert [d.title for d in days] == [
+    # two weeks in full; 07.10 is past the horizon, so it waits under «далі»
+    assert [d.title for d in cal.days] == [
         "Сьогодні, четвер 10.09",
         "Завтра, п'ятниця 11.09",
         "Субота 12.09",
-        "Середа 07.10",
     ]
-    assert [d.today for d in days] == [True, False, False, False]
-    today, tomorrow, saturday, october = days
+    assert [d.today for d in cal.days] == [True, False, False]
+    assert [d.title for d in cal.later] == ["Середа 07.10"]
+    assert cal.later_line == "07.10 Стрижка"
+    today, tomorrow, saturday = cal.days
+    (october,) = cal.later
     assert [(r.kind, r.id, r.time, r.note) for r in today.rows] == [
         ("event", 3, "весь день", "до 19.09"),
         ("reminder", 2, "08:00", ""),
@@ -114,8 +117,9 @@ def test_build_todo_lists(family: Family) -> None:
 def test_empty_lists_and_calendar_keep_today(family: Family) -> None:
     t = build_todo_lists([], NOW, family)
     assert t.overdue == [] and t.dated == [] and t.undated == [Group("", [])]
-    days = build_calendar([], [], NOW, family)
-    assert [(d.title, d.rows, d.today) for d in days] == [("Сьогодні, четвер 10.09", [], True)]
+    cal = build_calendar([], [], NOW, family)
+    assert [(d.title, d.rows, d.today) for d in cal.days] == [("Сьогодні, четвер 10.09", [], True)]
+    assert cal.later == [] and cal.later_line == ""
 
 
 def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -145,6 +149,9 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     db.create_event(
         "Буріння", who=None, created_by="oleh", source_message_id=mid, date_from="2026-09-15"
     )
+    db.create_event(  # past the two-week horizon: under «далі», not a day of its own
+        "Стрижка", who=None, created_by="oleh", source_message_id=mid, date_from="2026-10-07"
+    )
     done = db.create_todo("Замовити воду", owner="anna", created_by="anna", source_message_id=mid)
     db.close_todo(done, "done")
     client = TestClient(build_web(_settings(), family, db))
@@ -173,6 +180,9 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     assert "<h3>Вівторок 15.09</h3>" in agenda  # the all-day event on 15.09
     assert re.search(r'<span class="time allday">весь день</span>\s*<span>Буріння', agenda)
     assert "Купити квіти" not in agenda
+    # what comes after two weeks is one line that unfolds into the same days
+    summary = agenda.index("<summary>далі: 07.10 Стрижка</summary>")
+    assert agenda.index("<h3>Вівторок 15.09</h3>") < summary < agenda.index("<h3>Середа 07.10</h3>")
     assert "Стоматолог" not in home[home.index("Прострочено") :]
     assert home.index("<h2>Без дати</h2>") < home.index(">Подзвонити газовику Петру</span>")
     assert 'class="id"' not in home  # database ids are not for people

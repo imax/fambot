@@ -1,0 +1,16 @@
+{# the days of the web calendar: a small heading per day (today marked), its rows under it
+   with the time on the left. Included twice: the two weeks ahead, and the tail under «далі» #}
+{% for day in days %}
+<h3{% if day.today %} class="now"{% endif %}>{{ day.title }}</h3>
+<ul>
+  {% for r in day.rows %}
+  <li class="{{ r.kind }}" data-id="{{ r.id }}">
+    <span class="time{% if r.all_day %} allday{% endif %}">{{ r.time }}</span>
+    <span>{% if r.kind == 'reminder' %}<span class="mark">⏰</span>{% endif %}{{ r.text }}
+      {%- if r.ics_url %}<a class="ical" href="{{ r.ics_url }}" title="в календар (.ics)">📅</a>{% endif %}</span>
+  </li>
+  {% else %}
+  <li class="empty">Відпочиваємо :-)</li>
+  {% endfor %}
+</ul>
+{% endfor %}

@@ -13,26 +13,20 @@
   {% endfor %}
 </ul>
 {% endfor %}
-{# the agenda: every day with a planned event or a pending reminder, today always, a
-   small heading per day (like the phone's calendar widget) and its rows under it, the time
-   on the left next to the text; nothing else on the row. Read-only: events and reminders
-   are made and moved in the chat #}
+{# the calendar: every day with a planned event or a pending reminder, today always, like
+   the phone's calendar widget: a small heading per day, the time on the left next to the
+   text. Two weeks in full; what comes after is one line («далі: 07.10 Стрижка · …») that
+   unfolds into the same days. Read-only: events and reminders are made and moved in the
+   chat #}
 <h2>Календар</h2>
 <div class="agenda">
-{% for day in days %}
-<h3{% if day.today %} class="now"{% endif %}>{{ day.title }}</h3>
-<ul>
-  {% for r in day.rows %}
-  <li class="{{ r.kind }}" data-id="{{ r.id }}">
-    <span class="time{% if r.all_day %} allday{% endif %}">{{ r.time }}</span>
-    <span>{% if r.kind == 'reminder' %}<span class="mark">⏰</span>{% endif %}{{ r.text }}
-      {%- if r.ics_url %}<a class="ical" href="{{ r.ics_url }}" title="в календар (.ics)">📅</a>{% endif %}</span>
-  </li>
-  {% else %}
-  <li class="empty">Відпочиваємо :-)</li>
-  {% endfor %}
-</ul>
-{% endfor %}
+{% with days = calendar.days %}{% include "_days.html" %}{% endwith %}
+{% if calendar.later %}
+<details>
+  <summary>далі: {{ calendar.later_line }}</summary>
+  {% with days = calendar.later %}{% include "_days.html" %}{% endwith %}
+</details>
+{% endif %}
 </div>
 {# the todos: past their deadline, with one, without one (drag «⋮⋮» to order these) #}
 {% if todos.overdue %}
