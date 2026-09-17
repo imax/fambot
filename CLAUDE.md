@@ -204,6 +204,11 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   never the undated ones (they are on the web), no LLM call, and is silent when empty;
   `/today` is the same digest now. A reminder is text the LLM wrote at request time,
   sent by a per-minute job when `at` comes, to the one member it is for or to everyone.
+  A repeating one (`reminders.repeat`, `daily` or `weekly`, 2026-09-17, after «нагадування
+  кожен день о 19:30: планка») is a chain, not a schedule: the job that sends it (or marks
+  it missed) files the next at the same Kyiv wall-clock time, the first one still ahead
+  (`bot.next_repeat`); cancelling the pending one ends it. Only reminders repeat, events
+  and todos do not.
   A nudge (2026-09-16) is a todo without a day or a project, sent once at `NUDGE_TIME`
   (10:00 since the evening of 2026-09-16, 12:30 before) the day after it was filed, to its owner or to everyone, at most one per
   member per day (the newest first), with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the

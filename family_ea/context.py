@@ -1,5 +1,5 @@
 """Deterministic context for the LLM, the event agenda, todo buckets, the digest,
-the agenda and the todo lists of the web home.
+the calendar and the todo lists of the web home.
 
 Everything here is plain code: what is "today", what is "overdue", which items to
 show. The LLM only sees the result.
@@ -20,6 +20,7 @@ ITEM_HITS = 20  # items found by the message's words
 RECENT_MESSAGES = 20
 PAST_EVENT_DAYS = 7  # ended events stay in the LLM context this long ("коли був стоматолог?")
 ALL_DAY = "весь день"  # the calendar's label where a time would be
+HORIZON_DAYS = 14  # the web calendar shows this many days ahead in full; the rest is a line
 DEFAULT_EVENT_DURATION = timedelta(hours=1)
 WEEKDAYS_UK = ("понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота", "неділя")
 
@@ -214,9 +215,15 @@ def dream_line(d: Dream, family: Family) -> str:
 # --- reminders ----------------------------------------------------------------
 
 
+REPEAT_LABELS = {"daily": "щодня", "weekly": "щотижня"}
+
+
 def reminder_line(r: Reminder, family: Family, tz: ZoneInfo) -> str:
-    """'[нагадування #2] 11.09 15:00 Зустріч з пані Марією о 16:00 (Анна)'; '(усім)' for all."""
+    """'[нагадування #2] 11.09 15:00 Зустріч з пані Марією о 16:00 (Анна)'; '(усім)' for all;
+    '(Анна, щодня)' for a repeating one: the line is its next time."""
     to = family.display_name(r.who) if r.who else "усім"
+    if r.repeat:
+        to = f"{to}, {REPEAT_LABELS.get(r.repeat, r.repeat)}"
     return f"[нагадування #{r.id}] {fmt_dt(r.at, tz)} {r.text} ({to})"
 
 
@@ -358,12 +365,12 @@ def digest_text(
     return "\n".join(lines)
 
 
-# --- the agenda and the todo lists (the web) ----------------------------------
+# --- the calendar and the todo lists (the web) ----------------------------------
 
 
 @dataclass(frozen=True)
 class Row:
-    """One line of the web home (the agenda or a todo list), ready to render: a planned event, a
+    """One line of the web home (the calendar or a todo list), ready to render: a planned event, a
     pending reminder or an open todo. Everything is formatted here; the template only lays
     it out."""
 
@@ -380,13 +387,28 @@ class Row:
 
 @dataclass
 class Day:
-    """One day of the agenda on the web home: its heading ('Сьогодні, четвер 10.09',
-    marked when today) and its rows."""
+    """One day of the web calendar: its heading ('Сьогодні, четвер 10.09', marked when
+    today) and its rows."""
 
     when: date
     title: str
     rows: list[Row] = field(default_factory=list)
     today: bool = False
+
+
+@dataclass
+class Calendar:
+    """The calendar on the web home: the next two weeks day by day, and everything after
+    them as one line that unfolds into the same days ('далі: 07.10 Стрижка · …'). Most days
+    hold one row, so a long tail of single events would push the todos off the screen."""
+
+    days: list[Day] = field(default_factory=list)
+    later: list[Day] = field(default_factory=list)
+
+    @property
+    def later_line(self) -> str:
+        """The tail as text, for the line that unfolds it: '07.10 Стрижка · 26.10 Канікули'."""
+        return " · ".join(f"{d.when:%d.%m} {r.text}" for d in self.later for r in d.rows)
 
 
 @dataclass
@@ -404,7 +426,7 @@ class TodoLists:
     """The open todos on the web home: past their deadline, with a deadline from today on,
     and without one, in the hand-set order, a group per open project (in the order the
     projects were made) and the ones without a project last; one group with no name when
-    there are no projects. The agenda is `build_calendar`."""
+    there are no projects. The calendar is `build_calendar`."""
 
     overdue: list[Row] = field(default_factory=list)
     dated: list[Row] = field(default_factory=list)
@@ -442,9 +464,10 @@ def due_note(due: date, today: date) -> str:
 
 def build_calendar(
     events: list[Event], reminders: list[Reminder], now: datetime, family: Family
-) -> list[Day]:
-    """The agenda on the web home: every day with a planned event or a pending reminder,
-    today always, even empty.
+) -> Calendar:
+    """The calendar on the web home: every day with a planned event or a pending reminder,
+    today always, even empty; the days past `HORIZON_DAYS` go to `later`, shown as one line
+    until someone unfolds them.
 
     A multi-day event still running sits on today with «до …»; a reminder whose time passed
     but is still pending (about to be sent) sits on today too. Within a day: all-day events,
@@ -496,19 +519,22 @@ def build_calendar(
             r.id,
             r.text,
             time=f"{at:%H:%M}",
+            note=REPEAT_LABELS.get(r.repeat or "", ""),
             who=family.display_name(r.who) if r.who else "усім",
         )
         place(max(at.date(), today), (1, at.timestamp(), 1, r.id), row)
 
-    return [
-        Day(
+    horizon = today + timedelta(days=HORIZON_DAYS)
+    cal = Calendar()
+    for day in sorted(by_day):
+        d = Day(
             day,
             day_title(day, today),
             [row for _, row in sorted(by_day[day], key=lambda p: p[0])],
             today=day == today,
         )
-        for day in sorted(by_day)
-    ]
+        (cal.days if day <= horizon else cal.later).append(d)
+    return cal
 
 
 def build_todo_lists(

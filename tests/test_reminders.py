@@ -211,3 +211,53 @@ def test_web_lists_pending_reminders(
     assert page.index("Завтра, п&#39;ятниця 11.09") < page.index("15:00</span>")
     assert "⏰</span>Зустріч з пані Марією о 16:00" in page
     assert "Квіти" not in page
+
+
+def test_repeat_ops(db: Database, family: Family) -> None:
+    applied = _apply(
+        db,
+        family,
+        [
+            {"op": "create", "text": "Планка", "at": "2026-09-17T19:30+03:00", "repeat": "daily"},
+            {"op": "create", "text": "Басейн", "at": "2026-09-22T17:00+03:00", "repeat": "hourly"},
+        ],
+    )
+    assert [a.ok for a in applied] == [True, True]
+    assert "bad repeat" in applied[1].note  # an unknown rhythm: filed as a one-off, and said so
+    assert [r.repeat for r in db.pending_reminders()] == ["daily", None]
+    assert reminder_line(db.pending_reminders()[0], family, KYIV).endswith("Планка (усім, щодня)")
+    _apply(db, family, [{"op": "update", "id": 2, "repeat": "weekly"}])
+    _apply(db, family, [{"op": "update", "id": 1, "repeat": "-"}])  # «більше не повторюй»
+    assert [r.repeat for r in db.pending_reminders()] == [None, "weekly"]
+
+
+async def test_repeating_reminder_files_the_next(db: Database, family: Family) -> None:
+    mid = db.insert_message("oleh", "oleh", "...")
+
+    def create(text: str, at: str, repeat: str) -> int:
+        return db.create_reminder(
+            text, who="oleh", at=at, created_by="oleh", source_message_id=mid, repeat=repeat
+        )
+
+    async def send(member: Member, text: str) -> int:
+        return 1
+
+    create("Планка", "2026-10-24T16:30:00Z", "daily")  # 19:30 in Kyiv, the clocks change on 25.10
+    create("Басейн", "2026-10-24T16:30:00Z", "weekly")
+    create("Проспали", "2026-10-20T06:00:00Z", "daily")  # days of downtime: missed
+    now = datetime(2026, 10, 24, 16, 30, 20, tzinfo=UTC)
+    assert len(await deliver_due_reminders(db, family, now, send, KYIV)) == 2
+    pending = {r.text: r for r in db.pending_reminders()}
+    # the same wall-clock time after the change to winter time: 19:30 is now 17:30Z
+    assert pending["Планка"].at == "2026-10-25T17:30:00Z"
+    assert pending["Басейн"].at == "2026-10-31T17:30:00Z"
+    # a missed one goes on too, from the first time still ahead, not one a tick
+    assert pending["Проспали"].at == "2026-10-25T07:00:00Z"
+    assert {r.repeat for r in pending.values()} == {"daily", "weekly"}
+    assert all(r.who == "oleh" and r.source_message_id == mid for r in pending.values())
+
+    # cancelling the pending one ends the chain
+    assert db.cancel_reminder(pending["Планка"].id)
+    week_later = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+    await deliver_due_reminders(db, family, week_later, send, KYIV)
+    assert "Планка" not in {r.text for r in db.pending_reminders()}

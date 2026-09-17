@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS reminders (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
   source_message_id INTEGER NOT NULL,
-  sent_at TEXT
+  sent_at TEXT,
+  repeat TEXT                       -- 'daily' | 'weekly': sent, it files the next; NULL = once
 );
 
 CREATE TABLE IF NOT EXISTS items (
@@ -310,6 +311,7 @@ class Reminder:
     created_at: str
     source_message_id: int
     sent_at: str | None
+    repeat: str | None = None  # 'daily' | 'weekly'; None = once
 
     @property
     def is_pending(self) -> bool:
@@ -434,7 +436,8 @@ ITEM_UPDATABLE = ("name", "owner", "place", "spot", "note")
 ITEM_LABELS = {"name": "назва", "owner": "власник", "note": "примітка"}  # history detail
 TODO_UPDATABLE = ("text", "owner", "due", "project_id", "remind_on")
 EVENT_UPDATABLE = ("text", "who", "starts_at", "until", "date_from", "date_to")
-REMINDER_UPDATABLE = ("text", "who", "at")
+REMINDER_UPDATABLE = ("text", "who", "at", "repeat")
+REMINDER_REPEATS = ("daily", "weekly")
 
 
 class Database:
@@ -505,6 +508,11 @@ class Database:
         if "remind_on" not in columns:
             # 2026-09-16: a nudge about a todo without a date or a project, the day after.
             self.conn.execute("ALTER TABLE todos ADD COLUMN remind_on TEXT")
+            self.conn.commit()
+        columns = {r[1] for r in self.conn.execute("PRAGMA table_info(reminders)")}
+        if "repeat" not in columns:
+            # 2026-09-17: a reminder that repeats, daily or weekly.
+            self.conn.execute("ALTER TABLE reminders ADD COLUMN repeat TEXT")
             self.conn.commit()
         columns = {r[1] for r in self.conn.execute("PRAGMA table_info(projects)")}
         if "position" not in columns:
@@ -1218,17 +1226,18 @@ class Database:
         at: str,
         created_by: str,
         source_message_id: int,
+        repeat: str | None = None,
     ) -> int:
         cur = self.conn.execute(
             "INSERT INTO reminders (text, who, at, status, created_by, created_at,"
-            " source_message_id) VALUES (?, ?, ?, 'pending', ?, ?, ?)",
-            (text, who, at, created_by, utc_now_iso(), source_message_id),
+            " source_message_id, repeat) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)",
+            (text, who, at, created_by, utc_now_iso(), source_message_id, repeat),
         )
         self.conn.commit()
         return int(cur.lastrowid or 0)
 
     def update_reminder(self, reminder_id: int, **fields: str | None) -> bool:
-        """Update text/who/at of a pending reminder. Returns False if not pending."""
+        """Update text/who/at/repeat of a pending reminder. Returns False if not pending."""
         fields = {k: v for k, v in fields.items() if k in REMINDER_UPDATABLE}
         if not fields:
             return False

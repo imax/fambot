@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import db as db_module
-from .db import Database
+from .db import REMINDER_REPEATS, Database
 from .family import Family
 from .llm import EventOp, ItemOp, LlmResult, ReminderOp, TodoOp
 
@@ -267,6 +267,12 @@ def _reminder_fields(r: ReminderOp, family: Family, tz: ZoneInfo) -> tuple[dict,
             notes.append(f"bad at {r.at!r} dropped")
         else:
             fields["at"] = at
+    given, repeat = _given(r.repeat)
+    if given:
+        if repeat is not None and repeat not in REMINDER_REPEATS:
+            notes.append(f"bad repeat {r.repeat!r} dropped")
+        else:
+            fields["repeat"] = repeat  # None: once («більше не повторюй»)
     return fields, notes
 
 
@@ -500,6 +506,7 @@ def apply_ops(
                 at=fields["at"] or "",
                 created_by=author_id,
                 source_message_id=message_id,
+                repeat=fields.get("repeat"),
             )
             applied.append(Applied("reminder", "create", rid, True, note))
         elif r.op == "update":

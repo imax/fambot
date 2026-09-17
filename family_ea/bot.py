@@ -8,6 +8,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from telegram import (
     BotCommand,
@@ -37,7 +38,7 @@ from .context import (
     parse_iso,
     today_lines,
 )
-from .db import Database, Member, Reminder, Todo
+from .db import REMINDER_REPEATS, Database, Member, Reminder, Todo
 from .family import Family
 from .llm import Image
 from .pipeline import Pipeline
@@ -49,6 +50,7 @@ TG_MAX_LEN = 4000
 PRIVATE_BOT = "Це приватний сімейний бот."
 REMINDER_INTERVAL = 60  # seconds between checks for due reminders
 REMINDER_MAX_LATE = timedelta(hours=3)  # due longer ago than this (downtime): missed, not sent
+KYIV = ZoneInfo("Europe/Kyiv")  # the default of deliver_due_reminders; serve() passes settings.tz
 NUDGE_PATTERN = r"^todo:(done|tomorrow):\d+$"  # the callback data of a nudge's two buttons
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)  # login links in text: no preview fetch
 COMMANDS = [
@@ -180,11 +182,40 @@ def reminder_recipients(r: Reminder, family: Family) -> list[Member]:
     return [m for m in members if r.who is None or m.id == r.who]
 
 
+def next_repeat(at: datetime, repeat: str, now: datetime, tz: ZoneInfo) -> datetime:
+    """The next time of a repeating reminder: the same wall-clock time in `tz` a day or a
+    week on (19:30 stays 19:30 across a clock change), the first one after `now`, so a long
+    downtime leaves one reminder to come, not a queue of missed ones."""
+    step = timedelta(days=7 if repeat == "weekly" else 1)
+    local = at.astimezone(tz).replace(tzinfo=None)
+    while True:
+        local += step
+        if (nxt := local.replace(tzinfo=tz)) > now:
+            return nxt
+
+
+def _file_next(db: Database, r: Reminder, now: datetime, tz: ZoneInfo) -> None:
+    """A repeating reminder is a chain: the one that was just sent or missed files the next.
+    Cancelling the pending one ends the chain."""
+    if r.repeat not in REMINDER_REPEATS:
+        return
+    nxt = next_repeat(parse_iso(r.at), r.repeat, now, tz)
+    db.create_reminder(
+        r.text,
+        who=r.who,
+        at=nxt.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        created_by=r.created_by,
+        source_message_id=r.source_message_id,
+        repeat=r.repeat,
+    )
+
+
 async def deliver_due_reminders(
     db: Database,
     family: Family,
     now: datetime,
     send: Callable[[Member, str], Awaitable[int]],
+    tz: ZoneInfo = KYIV,
 ) -> list[Reminder]:
     """Send every pending reminder whose time has come; returns those marked sent.
 
@@ -192,13 +223,15 @@ async def deliver_due_reminders(
     is stored as a bot message so a reply to it («перенеси на 17») has context. A reminder
     counts as sent once at least one recipient got it; if nobody could be reached it stays
     pending for the next tick, until it is REMINDER_MAX_LATE old and becomes `missed`.
+    A repeating one (`repeat`) files its next occurrence when it is sent or missed.
     """
     now_iso = now.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
     sent: list[Reminder] = []
     for r in db.due_reminders(now_iso):
         recipients = reminder_recipients(r, family)
         if not recipients or parse_iso(r.at) < now - REMINDER_MAX_LATE:
-            db.finish_reminder(r.id, "missed")
+            if db.finish_reminder(r.id, "missed"):
+                _file_next(db, r, now, tz)
             why = "too late" if recipients else "no recipient"
             log.warning("reminder %s missed: %s", r.id, why)
             continue
@@ -214,7 +247,8 @@ async def deliver_due_reminders(
             db.set_tg_message_id(mid, tg_message_id)
             delivered = True
         if delivered:
-            db.finish_reminder(r.id, "sent")
+            if db.finish_reminder(r.id, "sent"):
+                _file_next(db, r, now, tz)
             sent.append(r)
     return sent
 
@@ -317,7 +351,7 @@ def build_bot(
             sent = await context.bot.send_message(member.telegram_id, text)
             return sent.message_id
 
-        await deliver_due_reminders(db, family, datetime.now(UTC), send)
+        await deliver_due_reminders(db, family, datetime.now(UTC), send, settings.tz)
 
     async def send_nudges(context: ContextTypes.DEFAULT_TYPE) -> None:
         """At noon: one loose end per member, with «Зроблено» and «Завтра» under it."""
