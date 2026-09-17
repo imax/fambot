@@ -256,7 +256,7 @@ def test_web_events(db: Database, family: Family) -> None:
     client = TestClient(build_web(_settings(), family, db))
 
     home = client.get("/", headers=_auth())
-    assert "Стоматолог" in home.text and f'href="/events/{eid}.ics"' in home.text
+    assert "Стоматолог" in home.text and ".ics" not in home.text
     assert "Скасоване" not in home.text
     search = client.get("/", params={"q": "скасован"}, headers=_auth())
     assert "Скасоване" in search.text and "status-cancelled" in search.text

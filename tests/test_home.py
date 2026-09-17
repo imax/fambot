@@ -59,7 +59,7 @@ def test_build_calendar(family: Family) -> None:
     ]
     cal = build_calendar(events, NOW, family)
 
-    # two weeks in full; 07.10 is past the horizon, so it waits under «далі»
+    # three days with events in full; 07.10 is the fourth, so it waits under «далі»
     assert [d.title for d in cal.days] == [
         "Сьогодні, четвер 10.09",
         "Завтра, п'ятниця 11.09",
@@ -78,7 +78,6 @@ def test_build_calendar(family: Family) -> None:
         ("event", 1, "15:30", "до 16:30", "Анна"),
     ]
     assert today.rows[0].all_day and not today.rows[1].all_day
-    assert tomorrow.rows[0].ics_url == "/events/1.ics"
     assert [(r.id, r.note) for r in saturday.rows] == [(4, "")]
     assert [(r.kind, r.id, r.time) for r in october.rows] == [("event", 5, "15:30")]
 
@@ -104,7 +103,7 @@ def test_build_todo_lists(family: Family) -> None:
     t = build_todo_lists(todos, NOW, family, reminders=reminders)
 
     assert [(r.id, r.note) for r in t.overdue] == [(4, "01.09"), (2, "09.09")]
-    assert t.overdue[1].ics_url == "/todos/2.ics" and t.overdue[1].time == ""
+    assert t.overdue[1].time == ""
     assert [(r.kind, r.id, r.note, r.who) for r in t.dated] == [
         ("todo", 3, "сьогодні", ""),
         ("reminder", 2, "сьогодні 08:00", "усім"),
@@ -113,9 +112,9 @@ def test_build_todo_lists(family: Family) -> None:
         ("todo", 5, "14.09", ""),
         ("reminder", 4, "сьогодні 19:30 · щодня", "усім"),  # repeats: after everything
     ]
-    assert all(r.time == "" and r.ics_url is None for r in t.dated if r.kind == "reminder")
+    assert all(r.time == "" for r in t.dated if r.kind == "reminder")
     assert [g.name for g in t.undated] == [""]  # no projects: one unnamed group
-    assert [(r.id, r.who, r.ics_url) for r in t.undated[0].rows] == [(6, "Олег", None)]
+    assert [(r.id, r.who) for r in t.undated[0].rows] == [(6, "Олег")]
 
 
 def test_empty_lists_and_calendar_keep_today(family: Family) -> None:
@@ -153,7 +152,11 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     db.create_event(
         "Буріння", who=None, created_by="oleh", source_message_id=mid, date_from="2026-09-15"
     )
-    db.create_event(  # past the two-week horizon: under «далі», not a day of its own
+    db.create_event(
+        "Гості", who=None, created_by="oleh", source_message_id=mid, date_from="2026-09-16"
+    )
+    # The fourth day with events (today is empty and does not count): under «далі».
+    db.create_event(
         "Стрижка", who=None, created_by="oleh", source_message_id=mid, date_from="2026-10-07"
     )
     done = db.create_todo("Замовити воду", owner="anna", created_by="anna", source_message_id=mid)
@@ -181,13 +184,13 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     assert agenda.index("Сьогодні") < agenda.index("Відпочиваємо :-)")  # empty today, listed
     assert agenda.index("Відпочиваємо") < agenda.index("<h3>Завтра, п'ятниця 11.09</h3>")
     assert agenda.index("<h3>Завтра") < agenda.index("15:30</span>")
-    assert "Стоматолог<a" in agenda and "до 16:30" not in agenda and "Анна" not in agenda
+    assert "Стоматолог</span>" in agenda and "до 16:30" not in agenda and "Анна" not in agenda
     assert "⏰" not in agenda and "14:30" not in agenda
-    assert '<li class="event" data-id="1">' in agenda and 'href="/events/1.ics"' in agenda
+    assert '<li class="event" data-id="1">' in agenda and ".ics" not in home
     assert "<h3>Вівторок 15.09</h3>" in agenda  # the all-day event on 15.09
     assert re.search(r'<span class="time allday">весь день</span>\s*<span>Буріння', agenda)
     assert "Купити квіти" not in agenda
-    # what comes after two weeks is one line that unfolds into the same days
+    # what comes after three days with events is one line that unfolds into the same days
     summary = agenda.index("<summary>далі: 07.10 Стрижка</summary>")
     assert agenda.index("<h3>Вівторок 15.09</h3>") < summary < agenda.index("<h3>Середа 07.10</h3>")
     assert "Стоматолог" not in home[home.index("<h2>Без дати</h2>") :]

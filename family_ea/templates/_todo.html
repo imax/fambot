@@ -1,6 +1,5 @@
 <li class="{{ 'overdue' if overdue else '' }} status-{{ c.status }}">
   {{ c.text }}
-  {% if c.has_due %}<a class="ical" href="/todos/{{ c.id }}.ics" title="в календар (.ics)">📅</a>{% endif %}
   <div class="meta">
     {% if c.owner %}{{ c.owner | person }} · {% endif %}
     {% if c | due %}{{ c | due }} · {% endif %}

@@ -20,7 +20,7 @@ ITEM_HITS = 20  # items found by the message's words
 RECENT_MESSAGES = 20
 PAST_EVENT_DAYS = 7  # ended events stay in the LLM context this long ("коли був стоматолог?")
 ALL_DAY = "весь день"  # the calendar's label where a time would be
-HORIZON_DAYS = 14  # the web calendar shows this many days ahead in full; the rest is a line
+CALENDAR_DAYS = 3  # the web calendar shows this many days with events in full; the rest is a line
 DEFAULT_EVENT_DURATION = timedelta(hours=1)
 WEEKDAYS_UK = ("понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота", "неділя")
 
@@ -379,7 +379,6 @@ class Row:
     all_day: bool = False  # the template styles the label, not a time
     note: str = ""  # 'до 17:00' / 'до 19.09': an end still ahead; a todo's deadline
     who: str = ""  # display name; 'усім' for a reminder to everyone; '' when nobody in particular
-    ics_url: str | None = None  # «📅»: an event or a dated todo
     project: str = ""  # a dated or overdue todo's project name; undated ones sit in its group
 
 
@@ -396,7 +395,7 @@ class Day:
 
 @dataclass
 class Calendar:
-    """The calendar on the web home: the next two weeks day by day, and everything after
+    """The calendar on the web home: the next three days with events, and everything after
     them as one line that unfolds into the same days ('далі: 07.10 Стрижка · …'). Most days
     hold one row, so a long tail of single events would push the todos off the screen."""
 
@@ -453,9 +452,9 @@ def due_note(due: date, today: date) -> str:
 
 def build_calendar(events: list[Event], now: datetime, family: Family) -> Calendar:
     """The calendar on the web home: every day with a planned event, today always, even
-    empty; the days past `HORIZON_DAYS` go to `later`, shown as one line until someone
-    unfolds them. Events only, where someone has to be: a reminder is a push to do
-    something and sits with the dated todos (`build_todo_lists`, 2026-09-17).
+    empty; the days after the first `CALENDAR_DAYS` with events go to `later`, shown as one
+    line until someone unfolds them. Events only, where someone has to be: a reminder is a
+    push to do something and sits with the dated todos (`build_todo_lists`, 2026-09-17).
 
     A multi-day event still running sits on today with «до …». Within a day: all-day
     events, then timed ones by time.
@@ -493,12 +492,11 @@ def build_calendar(events: list[Event], now: datetime, family: Family) -> Calend
             all_day=not e.starts_at,
             note=note,
             who=family.display_name(e.who) if e.who else "",
-            ics_url=f"/events/{e.id}.ics",
         )
         place(day, (1, start.timestamp(), 0, e.id) if e.starts_at else (0, 0.0, 0, e.id), row)
 
-    horizon = today + timedelta(days=HORIZON_DAYS)
     cal = Calendar()
+    full = 0  # days with events shown so far; an empty today is on the page but not counted
     for day in sorted(by_day):
         d = Day(
             day,
@@ -506,7 +504,8 @@ def build_calendar(events: list[Event], now: datetime, family: Family) -> Calend
             [row for _, row in sorted(by_day[day], key=lambda p: p[0])],
             today=day == today,
         )
-        (cal.days if day <= horizon else cal.later).append(d)
+        (cal.days if full < CALENDAR_DAYS else cal.later).append(d)
+        full += bool(d.rows)
     return cal
 
 
@@ -552,7 +551,6 @@ def build_todo_lists(
             td.text,
             note=f"{due:%d.%m}" if late else due_note(due, today),
             who=who,
-            ics_url=f"/todos/{td.id}.ics",
             project=names.get(td.project_id, "") if td.project_id is not None else "",
         )
         (overdue if late else dated).append(((due, 0, td.id), row))

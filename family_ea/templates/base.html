@@ -40,7 +40,6 @@
   .row input { font: inherit; padding: .3rem .4rem; min-width: 0; max-width: 100%; box-sizing: border-box; }
   .row button { margin-top: 0; }
   .error { color: #b33; }
-  .ical { text-decoration: none; margin-left: .4rem; }
   h2.overdue { color: #b33; }
   .time { color: #444; font-variant-numeric: tabular-nums; white-space: nowrap; }
   /* the agenda, like the phone's calendar widget: a small heading per day (today in red),
@@ -100,9 +99,9 @@
   /* With a mouse, the row tools and the project handle show up on hover (or when dragged);
      on a touch screen there is no hover, so they stay in view. */
   @media (hover: hover) and (pointer: fine) {
-    li.todo .tools, h2 .grip, .agenda .ical { opacity: 0; transition: opacity .1s; }
+    li.todo .tools, h2 .grip { opacity: 0; transition: opacity .1s; }
     li.todo:hover .tools, li.todo .tools:focus-within, li.dragging .tools,
-    h2:hover .grip, section.dragging h2 .grip, .agenda li:hover .ical { opacity: 1; }
+    h2:hover .grip, section.dragging h2 .grip { opacity: 1; }
   }
   .chat li { border: 0; padding: .4rem 0; }
   .chat .bubble { display: inline-block; max-width: 85%; padding: .4rem .7rem; border-radius: .7rem; white-space: pre-line; }

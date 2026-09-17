@@ -6,8 +6,7 @@
   {% for r in day.rows %}
   <li class="{{ r.kind }}" data-id="{{ r.id }}">
     <span class="time{% if r.all_day %} allday{% endif %}">{{ r.time }}</span>
-    <span>{{ r.text }}
-      {%- if r.ics_url %}<a class="ical" href="{{ r.ics_url }}" title="в календар (.ics)">📅</a>{% endif %}</span>
+    <span>{{ r.text }}</span>
   </li>
   {% else %}
   <li class="empty">Відпочиваємо :-)</li>

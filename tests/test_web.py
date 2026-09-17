@@ -251,9 +251,8 @@ def test_web_ics(db: Database, family: Family) -> None:
     undated = db.create_todo("Без дати", owner=None, created_by="anna", source_message_id=mid)
     client = TestClient(build_web(_settings(), family, db))
 
-    home = client.get("/", headers=_auth())
-    assert f'href="/todos/{dated}.ics"' in home.text
-    assert f'href="/todos/{undated}.ics"' not in home.text
+    # The «📅» next to every row went on 2026-09-17; the files are still served.
+    assert ".ics" not in client.get("/", headers=_auth()).text
 
     ics = client.get(f"/todos/{dated}.ics", headers=_auth())
     assert ics.status_code == 200 and ics.headers["content-type"].startswith("text/calendar")
