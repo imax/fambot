@@ -15,7 +15,7 @@
 {% endfor %}
 {# the calendar: every day with a planned event, today always, like
    the phone's calendar widget: a small heading per day, the time on the left next to the
-   text. Two weeks in full; what comes after is one line («далі: 07.10 Стрижка · …») that
+   text. Three days with events in full; what comes after is one line («далі: 07.10 Стрижка · …») that
    unfolds into the same days. Read-only: events are made and moved in the chat #}
 <h2>Календар</h2>
 <div class="agenda">
@@ -27,8 +27,15 @@
 </details>
 {% endif %}
 </div>
-{# the todos: past their day, with one («Задачі», the pending reminders among them as
-   «⏰» rows nobody taps), without one (drag «⋮⋮» to order these) #}
+{# the pending reminders: «⏰» rows nobody taps, by time, the repeating ones last.
+   Read-only: a reminder is moved or cancelled in the chat #}
+{% if reminders %}
+<h2>Нагадування</h2>
+<ul class="rows">
+  {% for r in reminders %}{% include "_row.html" %}{% endfor %}
+</ul>
+{% endif %}
+{# the todos: past their day, with one («Задачі»), without one (drag «⋮⋮» to order these) #}
 {% if todos.overdue %}
 <h2 class="overdue">Прострочено</h2>
 <ul class="rows overdue">

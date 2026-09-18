@@ -42,6 +42,7 @@ from .context import (
     fmt_dt,
     fmt_due,
     fmt_event_when,
+    reminder_rows,
     search_notes,
     word_pattern,
 )
@@ -178,9 +179,9 @@ def build_web(
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
         """The boards (the viewer's own first), the calendar (two weeks of days with an
-        event, today always, the rest under «далі»), the todos (overdue; «Задачі»: the
-        ones with a day and the pending reminders; without a day by project), the last
-        done ones; `?q=` searches instead: events, todos, items, and the sections of the
+        event, today always, the rest under «далі»), the pending reminders, the todos
+        (overdue; «Задачі»: the ones with a day; without a day by project), the last done
+        ones; `?q=` searches instead: events, todos, items, and the sections of the
         notes page."""
         if q and q.strip():
             q = q.strip()
@@ -201,20 +202,16 @@ def build_web(
                 },
             )
         now = datetime.now(settings.tz)
-        todos = build_todo_lists(
-            db.open_todos(),
-            now,
-            family,
-            projects=db.open_projects(),
-            reminders=db.pending_reminders(),
-        )
+        todos = build_todo_lists(db.open_todos(), now, family, projects=db.open_projects())
         calendar = build_calendar(db.planned_events(), now, family)
+        reminders = reminder_rows(db.pending_reminders(), now, family)
         return templates.TemplateResponse(
             request,
             "index.html",
             {
                 "q": "",
                 "calendar": calendar,
+                "reminders": reminders,
                 "todos": todos,
                 "today": board_blocks(db.current_today_lists(), family, member.id, now),
                 "done": db.recent_done_todos(DONE_SHOWN),

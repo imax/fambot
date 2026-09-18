@@ -54,8 +54,8 @@ family_ea/
                 todo buckets (today/overdue/open/later), the project lines, the boards (blocks for the
                 web and the digest head), the dream lines, the notes page for the LLM,
                 the digest text, the web home
-                (calendar days of events; overdue todos; the dated ones with the pending
-                reminders among them; the undated ones in a group per project), the search stems
+                (calendar days of events; the pending reminders; overdue todos; the dated
+                ones; the undated ones in a group per project), the search stems
   llm.py        pydantic output schema, system prompt, the one messages.parse() call
   ops.py        apply LLM ops to db, with validation and an `applied` log
   pipeline.py   store (message, then its photo as an attachment) -> context -> LLM -> ops -> reply;
@@ -73,8 +73,8 @@ family_ea/
                 voice, photo), the 08:30 digest job, the per-minute reminder job, «Відкрити» (a
                 login link) under the digest, /today and /web
   web.py        FastAPI + Jinja: GET /login?t= (the bot's link; sets the cookie), GET / (the
-                boards, the calendar of events, the todos with the pending reminders
-                among the dated ones under «Задачі», the last done ones; ?q= searches), GET /items (Речі:
+                boards, the calendar of events, the pending reminders, the todos, the
+                last done ones; ?q= searches), GET /items (Речі:
                 places, recent; ?place= ?owner= list), GET /items/:id (photos, history),
                 GET /dreams (Мрії: open ones, then fulfilled; read-only), GET /notes
                 (Нотатки: the LLM's Markdown rendered, its source photos; read-only),

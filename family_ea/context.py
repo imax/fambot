@@ -420,10 +420,10 @@ class Group:
 
 @dataclass
 class TodoLists:
-    """The open todos on the web home: past their day, with a day from today on (and the
-    pending reminders among them), and without one, in the hand-set order, a group per
-    open project (in the order the projects were made) and the ones without a project
-    last; one group with no name when there are no projects. The calendar is `build_calendar`."""
+    """The open todos on the web home: past their day, with a day from today on, and
+    without one, in the hand-set order, a group per open project (in the order the
+    projects were made) and the ones without a project last; one group with no name when
+    there are no projects. The calendar is `build_calendar`, the reminders `reminder_rows`."""
 
     overdue: list[Row] = field(default_factory=list)
     dated: list[Row] = field(default_factory=list)
@@ -514,20 +514,13 @@ def build_todo_lists(
     now: datetime,
     family: Family,
     projects: list[Project] | None = None,
-    reminders: list[Reminder] | None = None,
 ) -> TodoLists:
     """Sort the open todos out for the home page.
 
     Todos past their day are overdue, oldest first; the others with a day come by day,
     nearest first («Задачі» on the web); the undated keep the order they come in:
     `open_todos()` gives the hand-set one.
-
-    The pending reminders sit among the dated todos, «⏰» for «☐»: on their day after its
-    todos, by time, the note 'завтра 19:30 · щодня'; the repeating ones at the very end.
-    One whose time passed but is still pending (about to be sent) counts as today's.
     """
-    tz = now.tzinfo
-    assert isinstance(tz, ZoneInfo)
     today = now.date()
     overdue: list[tuple[tuple, Row]] = []
     dated: list[tuple[tuple, Row]] = []
@@ -553,22 +546,7 @@ def build_todo_lists(
             who=who,
             project=names.get(td.project_id, "") if td.project_id is not None else "",
         )
-        (overdue if late else dated).append(((due, 0, td.id), row))
-
-    for r in reminders or []:
-        if not r.is_pending:
-            continue
-        at = parse_iso(r.at).astimezone(tz)
-        day = max(at.date(), today)
-        note = " · ".join(
-            filter(None, [f"{due_note(day, today)} {at:%H:%M}", REPEAT_LABELS.get(r.repeat or "")])
-        )
-        who = family.display_name(r.who) if r.who else "усім"
-        # A repeating one comes round again whatever anyone does: after everything with a day.
-        first = date.max if r.repeat in REPEAT_LABELS else day
-        dated.append(
-            ((first, 1, at.timestamp()), Row("reminder", r.id, r.text, note=note, who=who))
-        )
+        (overdue if late else dated).append(((due, td.id), row))
 
     t.overdue = [row for _, row in sorted(overdue, key=lambda pair: pair[0])]
     t.dated = [row for _, row in sorted(dated, key=lambda pair: pair[0])]
@@ -578,6 +556,30 @@ def build_todo_lists(
     rest = [row for pid, rows in groups.items() for row in rows]
     t.undated = [Group("", rest), *by_project]  # the loose ends first, then the projects
     return t
+
+
+def reminder_rows(reminders: list[Reminder], now: datetime, family: Family) -> list[Row]:
+    """The pending reminders for «Нагадування» on the web home, its own block under the
+    calendar (2026-09-18; they sat among the dated todos for a day and mixed badly with
+    them): «⏰» rows nobody taps, by time, the note 'завтра 19:30 · щодня'; the repeating
+    ones at the end, since they come round again whatever anyone does. One whose time
+    passed but is still pending (about to be sent) counts as today's."""
+    tz = now.tzinfo
+    assert isinstance(tz, ZoneInfo)
+    today = now.date()
+    rows: list[tuple[tuple, Row]] = []
+    for r in reminders:
+        if not r.is_pending:
+            continue
+        at = parse_iso(r.at).astimezone(tz)
+        day = max(at.date(), today)
+        repeat = REPEAT_LABELS.get(r.repeat or "")
+        note = " · ".join(filter(None, [f"{due_note(day, today)} {at:%H:%M}", repeat]))
+        who = family.display_name(r.who) if r.who else "усім"
+        rows.append(
+            ((bool(repeat), at.timestamp()), Row("reminder", r.id, r.text, note=note, who=who))
+        )
+    return [row for _, row in sorted(rows, key=lambda pair: pair[0])]
 
 
 # --- search -------------------------------------------------------------------
