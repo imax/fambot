@@ -87,7 +87,7 @@ def help_text(settings: Settings) -> str:
         f"{when} надсилаю дайджест, а нагадую, коли попросиш. Про задачу без дати й проєкту "
         f"сам нагадаю наступного дня о {nudge}, одну на день, з кнопками «Зроблено» і "
         f"«Завтра»; під разовим нагадуванням є «Нагадати завтра». Коли хтось додає подію в "
-        f"календар, пишу про неї іншим."
+        f"календар або закриває задачу, пишу про це іншим."
         f"\n\nКоманди:\n{commands}"
     )
 
@@ -181,19 +181,20 @@ async def deliver_due_nudges(
     return sent
 
 
-def nudge_tap(db: Database, data: str, today: date) -> tuple[str, str | None]:
-    """A tap on a nudge's button (`data` matches NUDGE_PATTERN): what the toast says and
-    the message's new text (the buttons go with it); None keeps the text. Done closes the
+def nudge_tap(db: Database, data: str, today: date) -> tuple[str, str | None, int | None]:
+    """A tap on a nudge's button (`data` matches NUDGE_PATTERN): what the toast says, the
+    message's new text (the buttons go with it; None keeps the text) and the id of the
+    todo it closed, if any (the others are told, see `announce_done`). Done closes the
     todo through `close_todo` like a tap on the web, tomorrow sets `remind_on`."""
     action, _, raw = data.removeprefix("todo:").partition(":")
     t = db.get_todo(int(raw))
     if t is None or not t.is_open:
-        return "Задача вже закрита.", None
+        return "Задача вже закрита.", None, None
     if action == "done":
         db.close_todo(t.id, "done")
-        return "Зроблено", f"✓ {t.text}"
+        return "Зроблено", f"✓ {t.text}", t.id
     db.update_todo(t.id, remind_on=(today + timedelta(days=1)).isoformat())
-    return "Нагадаю завтра", f"{nudge_text(t)}\nНагадаю завтра."
+    return "Нагадаю завтра", f"{nudge_text(t)}\nНагадаю завтра.", None
 
 
 def reminder_tap(
@@ -229,6 +230,11 @@ def event_notice(author: Member, events: list[Event], family: Family, tz: ZoneIn
     return "\n".join([f"📅 {author.name}: {head}", *lines])
 
 
+def done_notice(author: Member, todos: list[Todo]) -> str:
+    """'✓ Олег: зроблено' and a line per todo; no verb after the name, like event_notice."""
+    return "\n".join([f"✓ {author.name}: зроблено", *(t.text for t in todos)])
+
+
 async def announce_events(
     db: Database,
     family: Family,
@@ -244,7 +250,36 @@ async def announce_events(
     events = [e for e in map(db.get_event, ids) if e is not None]
     if not events:
         return []
-    text = _clip(event_notice(author, events, family, tz))
+    return await tell_others(db, family, author, event_notice(author, events, family, tz), send)
+
+
+async def announce_done(
+    db: Database,
+    family: Family,
+    author: Member,
+    applied: list[Applied],
+    send: Callable[[Member, str], Awaitable[int]],
+) -> list[Member]:
+    """The todos `author` marked done (a «зробив» in the chat, «☐» on the web, «✓ Зроблено»
+    under a nudge), told to every other member the way a new event is. A dropped todo is
+    not news. Returns who was told."""
+    ids = [a.id for a in applied if a.kind == "todo" and a.op == "close:done" and a.ok and a.id]
+    todos = [t for t in map(db.get_todo, ids) if t is not None]
+    if not todos:
+        return []
+    return await tell_others(db, family, author, done_notice(author, todos), send)
+
+
+async def tell_others(
+    db: Database,
+    family: Family,
+    author: Member,
+    text: str,
+    send: Callable[[Member, str], Awaitable[int]],
+) -> list[Member]:
+    """One text to every member but `author`, stored as a bot message in each recipient's
+    chat so a reply to it has context; one who could not be reached is skipped."""
+    text = _clip(text)
     told: list[Member] = []
     for member in family.members:
         if member.id == author.id or member.telegram_id is None:
@@ -252,7 +287,7 @@ async def announce_events(
         try:
             tg_message_id = await send(member, text)
         except Exception:
-            log.warning("event notice: could not message %s", member.id, exc_info=True)
+            log.warning("notice: could not message %s", member.id, exc_info=True)
             continue
         mid = db.insert_message("bot", member.id, text)
         db.set_tg_message_id(mid, tg_message_id)
@@ -460,8 +495,9 @@ def build_bot(
         if member is None:
             await query.answer(PRIVATE_BOT)
             return
+        done_id = None
         if query.data.startswith("todo:"):
-            toast, text = nudge_tap(db, query.data, datetime.now(settings.tz).date())
+            toast, text, done_id = nudge_tap(db, query.data, datetime.now(settings.tz).date())
         else:
             toast, text = reminder_tap(db, query.data, member.id, datetime.now(UTC), settings.tz)
         if text is not None:
@@ -469,6 +505,8 @@ def build_bot(
         else:
             await query.edit_message_reply_markup(None)
         await query.answer(toast)
+        if done_id is not None:
+            await announce(member, [Applied("todo", "close:done", done_id, True)])
 
     async def today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """The morning digest, now, with «Відкрити» under it."""
@@ -628,7 +666,8 @@ def build_bot(
     app = Application.builder().token(settings.telegram_token).post_init(post_init).build()
 
     async def announce(author: Member, applied: list[Applied]) -> None:
-        """A new event is told to the others, whether it came from Telegram or «🎙» on the web."""
+        """A new event and a todo done are told to the others, whether they came from
+        Telegram, «🎙» or a tap on the web, or a button under a nudge."""
 
         async def send(member: Member, text: str) -> int:
             assert member.telegram_id is not None
@@ -636,6 +675,7 @@ def build_bot(
             return sent.message_id
 
         await announce_events(db, family, author, applied, send, settings.tz)
+        await announce_done(db, family, author, applied, send)
 
     pipeline.announce = announce
     allowed = family_filter(family)

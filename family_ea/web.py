@@ -51,6 +51,7 @@ from .family import Family
 from .files import FileStore, files_for, files_of_kind
 from .ical import event_ics, ics_filename, todo_ics
 from .llm import Image
+from .ops import Applied
 from .pipeline import Pipeline, llm_result_lines
 from .transcribe import Transcriber
 
@@ -352,12 +353,19 @@ def build_web(
             raise HTTPException(status_code=404, detail="no such dated todo")
         return ics_response(todo_ics(c), c.text)
 
-    @app.post("/todos/{cid:int}/done", dependencies=[Depends(authed)])
-    async def todo_done(cid: int) -> Response:
+    @app.post("/todos/{cid:int}/done")
+    async def todo_done(cid: int, member: Annotated[Member, Depends(authed)]) -> Response:
         """«☐» tapped on the home page: the todo is done, through the same db method
-        the LLM's close op uses. Dropping stays with the LLM; nothing reopens."""
+        the LLM's close op uses, and the others hear of it through the pipeline's
+        announce hook like a «зробив» in the chat. Dropping stays with the LLM; nothing
+        reopens."""
         if not db.close_todo(cid, "done"):
             raise HTTPException(status_code=404, detail="no such open todo")
+        if pipeline is not None and pipeline.announce is not None:
+            try:
+                await pipeline.announce(member, [Applied("todo", "close:done", cid, True)])
+            except Exception:  # the tap went through; the others not hearing is logged
+                log.exception("todo %s done on the web: announce failed", cid)
         return Response(status_code=204)
 
     @app.post("/todos/{cid:int}/text", dependencies=[Depends(authed)])

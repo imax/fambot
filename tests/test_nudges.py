@@ -158,14 +158,15 @@ def test_the_buttons(db: Database) -> None:
     assert nudge_tap(db, f"todo:tomorrow:{t.id}", today) == (
         "Нагадаю завтра",
         "🔔 Клініки\nНагадаю завтра.",
+        None,
     )
     assert db.get_todo(t.id).remind_on == "2026-09-17"
-    assert nudge_tap(db, f"todo:done:{t.id}", today) == ("Зроблено", "✓ Клініки")
+    assert nudge_tap(db, f"todo:done:{t.id}", today) == ("Зроблено", "✓ Клініки", t.id)
     done = db.get_todo(t.id)
     assert done and done.status == "done" and done.closed_at
     # A second tap on an old message: the buttons go, nothing reopens
-    assert nudge_tap(db, f"todo:tomorrow:{t.id}", today) == ("Задача вже закрита.", None)
-    assert nudge_tap(db, "todo:done:999", today) == ("Задача вже закрита.", None)
+    assert nudge_tap(db, f"todo:tomorrow:{t.id}", today) == ("Задача вже закрита.", None, None)
+    assert nudge_tap(db, "todo:done:999", today) == ("Задача вже закрита.", None, None)
     assert db.get_todo(t.id).status == "done"
 
 

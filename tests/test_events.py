@@ -313,3 +313,61 @@ async def test_a_new_event_is_told_to_the_other_member(db: Database, family: Fam
     applied = apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
     assert applied[0].ok and await announce_events(db, family, oleh, applied, send, KYIV) == []
     assert len(sent) == 1
+
+
+async def test_a_todo_done_is_told_to_the_other_member(db: Database, family: Family) -> None:
+    from family_ea.bot import announce_done
+    from family_ea.ops import Applied
+
+    oleh = family.get("oleh")
+    assert oleh
+    mid = db.insert_message("oleh", "oleh", "...")
+    result = LlmResult.model_validate(
+        {
+            "reply": "",
+            "todos": [
+                {"op": "create", "text": "Купити пасту"},
+                {"op": "create", "text": "Подзвонити майстру"},
+                {"op": "create", "text": "Скасоване"},
+            ],
+        }
+    )
+    apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+    result = LlmResult.model_validate(
+        {
+            "reply": "",
+            "todos": [
+                {"op": "close", "id": 1},
+                {"op": "close", "id": 2, "status": "done"},
+                {"op": "close", "id": 3, "status": "dropped"},  # not news
+                {"op": "close", "id": 999},  # fails
+            ],
+        }
+    )
+    applied = apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+    assert [(a.op, a.ok) for a in applied] == [
+        ("close:done", True),
+        ("close:done", True),
+        ("close:dropped", True),
+        ("close:done", False),
+    ]
+    sent: list[tuple[str, str]] = []
+
+    async def send(member: Member, text: str) -> int:
+        sent.append((member.id, text))
+        return 78
+
+    told = await announce_done(db, family, oleh, applied, send)
+    text = "✓ Олег: зроблено\nКупити пасту\nПодзвонити майстру"
+    assert [m.id for m in told] == ["anna"] and sent == [("anna", text)]
+    stored = db.list_messages(limit=1)[0]
+    assert (stored.user_id, stored.chat_with, stored.raw_text) == ("bot", "anna", text)
+    assert stored.tg_message_id == 78
+
+    # the web's «☐» and the nudge's «✓ Зроблено» announce through the same entry
+    assert await announce_done(db, family, oleh, [Applied("todo", "close:done", 1, True)], send)
+    assert sent[-1] == ("anna", "✓ Олег: зроблено\nКупити пасту")
+    assert (
+        await announce_done(db, family, oleh, [Applied("todo", "close:dropped", 3, True)], send)
+        == []
+    )

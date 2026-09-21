@@ -229,9 +229,13 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   after the name (the members table has no gender). `Pipeline.announce` is a hook that
   `build_bot` sets (`bot.announce_events`), so «🎙» on the web announces too and `chat`
   does not; only a successful `create`, never an update or a cancel, and nothing for
-  todos or items. All four are stored as bot
-  messages in each recipient's chat so replies to them have context. Anything else the
-  bot sends on its own must follow the same two rules.
+  items. A done notice (2026-09-21) does the same for a todo marked done, «✓ Олег:
+  зроблено» and the todo text (`bot.announce_done`, over the same `Applied` list: op
+  `close:done`, never `close:dropped`), from all three places a todo is closed: the chat,
+  «☐» on the web (the route calls `pipeline.announce` itself with a one-entry list) and
+  «✓ Зроблено» under a nudge. Both notices go through `bot.tell_others`. All five are
+  stored as bot messages in each recipient's chat so replies to them have context.
+  Anything else the bot sends on its own must follow the same two rules.
 - **Web identity comes from the bot.** No passwords: `/web` (and «Відкрити» under the digest
   and `/today`) sends a member a signed link, opening it sets a year-long signed cookie.
   Whoever is in `members` can log in; nothing is stored, so removing a member or

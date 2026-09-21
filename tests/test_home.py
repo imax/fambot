@@ -8,13 +8,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from family_ea.context import Group, build_calendar, build_todo_lists, day_title, reminder_rows
-from family_ea.db import Database, Reminder
+from family_ea.db import Database, Member, Reminder
 from family_ea.family import Family
 from family_ea.web import build_web
 from tests.conftest import KYIV
 from tests.test_context import _c
 from tests.test_events import _e
-from tests.test_web import _auth, _settings, freeze_web_clock
+from tests.test_web import _auth, _pipeline, _settings, freeze_web_clock
 
 NOW = datetime(2026, 9, 10, 15, 0, tzinfo=KYIV)  # Thursday afternoon
 
@@ -284,7 +284,14 @@ def test_web_todo_done(db: Database, family: Family, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-10T12:00:00Z")
     mid = db.insert_message("oleh", "oleh", "хліб")
     cid = db.create_todo("Купити хліб", owner=None, created_by="oleh", source_message_id=mid)
-    client = TestClient(build_web(_settings(), family, db))
+    heard: list[tuple[str, list[tuple[str, str, int | None, bool]]]] = []
+
+    async def announce(author: Member, applied: list) -> None:
+        heard.append((author.id, [(a.kind, a.op, a.id, a.ok) for a in applied]))
+
+    pipeline = _pipeline(db, family)
+    pipeline.announce = announce
+    client = TestClient(build_web(_settings(), family, db, pipeline=pipeline))
     home = client.get("/", headers=_auth()).text
     assert '<span class="mark" title="Торкнись, коли зроблено">☐</span>' in home
 
@@ -293,6 +300,7 @@ def test_web_todo_done(db: Database, family: Family, monkeypatch: pytest.MonkeyP
     assert client.post(url, headers=_auth()).status_code == 204
     c = db.get_todo(cid)
     assert c is not None and c.status == "done" and c.closed_at == "2026-09-10T12:00:00Z"
+    assert heard == [("oleh", [("todo", "close:done", cid, True)])]  # the others hear of it
     home = client.get("/", headers=_auth()).text
     assert home.index("<h2>Зроблено</h2>") < home.index("Купити хліб")
     assert client.post(url, headers=_auth()).status_code == 404  # once; nothing reopens
