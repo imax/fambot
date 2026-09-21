@@ -222,7 +222,8 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   arrives; it is shown nowhere. From 2026-09-16 to 2026-09-17 the LLM could set it too
   (`TodoOp.remind_on`, «нагадай про це в четвер», a «🔔 25.09» on the web): two days on one
   todo, a deadline and a nudge day, was more than anyone could keep apart, so a todo has
-  one day, `due`, shown without «до», and «нагадай про це в четвер» sets it.
+  one day, `due`, shown without «до». Since 2026-09-21 «нагадай …» is always a reminder,
+  never a todo's day: a day without an hour means 10:00 Kyiv that day (prompt only).
   An event notice (2026-09-17) tells every other member about an event a message created,
   right after the ops run: «📅 Олег: нова подія в календарі» and the event line, no verb
   after the name (the members table has no gender). `Pipeline.announce` is a hook that
