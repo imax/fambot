@@ -209,7 +209,11 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   кожен день о 19:30: планка») is a chain, not a schedule: the job that sends it (or marks
   it missed) files the next at the same Kyiv wall-clock time, the first one still ahead
   (`bot.next_repeat`); cancelling the pending one ends it. Only reminders repeat, events
-  and todos do not.
+  and todos do not. A one-off reminder carries one inline button, «Нагадати завтра»
+  (2026-09-21): the tap files a new one-off with the same text and recipients at the same
+  Kyiv wall-clock time on the next day still ahead (`bot.reminder_tap`, through
+  `next_repeat`) and rewrites the message without the button; no «Зроблено», since a sent
+  reminder has no state to mark. A repeating one gets no button.
   A nudge (2026-09-16) is a todo without a day or a project, sent once at `NUDGE_TIME`
   (10:00 since the evening of 2026-09-16, 12:30 before) the day after it was filed, to its owner or to everyone, at most one per
   member per day (the newest first), with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the

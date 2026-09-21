@@ -4,8 +4,16 @@ from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from telegram import InlineKeyboardMarkup
 
-from family_ea.bot import deliver_due_reminders, reminder_recipients
+from family_ea.bot import (
+    REMINDER_PATTERN,
+    TAP_PATTERN,
+    deliver_due_reminders,
+    reminder_keyboard,
+    reminder_recipients,
+    reminder_tap,
+)
 from family_ea.context import build_context, reminder_line
 from family_ea.db import Database, Member
 from family_ea.family import Family
@@ -154,10 +162,11 @@ async def test_deliver_due_reminders(db: Database, family: Family) -> None:
     create("Нікому", "olia", "2026-09-11T12:00:00Z")  # no Telegram id: missed
     sent_to: list[tuple[int, str]] = []
 
-    async def send(member: Member, text: str) -> int:
+    async def send(member: Member, text: str, keyboard: InlineKeyboardMarkup | None) -> int:
         assert member.telegram_id is not None
         if member.id == "oleh" and text == "⏰ Зустріч о 16:00":
             raise RuntimeError("blocked the bot")  # one recipient failing does not lose the rest
+        assert keyboard is not None  # «Нагадати завтра» under every one-off reminder
         sent_to.append((member.telegram_id, text))
         return 100 + len(sent_to)
 
@@ -240,7 +249,8 @@ async def test_repeating_reminder_files_the_next(db: Database, family: Family) -
             text, who="oleh", at=at, created_by="oleh", source_message_id=mid, repeat=repeat
         )
 
-    async def send(member: Member, text: str) -> int:
+    async def send(member: Member, text: str, keyboard: InlineKeyboardMarkup | None) -> int:
+        assert keyboard is None  # a repeating reminder files its own next: no button
         return 1
 
     create("Планка", "2026-10-24T16:30:00Z", "daily")  # 19:30 in Kyiv, the clocks change on 25.10
@@ -262,3 +272,70 @@ async def test_repeating_reminder_files_the_next(db: Database, family: Family) -
     week_later = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
     await deliver_due_reminders(db, family, week_later, send, KYIV)
     assert "Планка" not in {r.text for r in db.pending_reminders()}
+
+
+def test_the_button(db: Database, family: Family) -> None:
+    """«Нагадати завтра» under a sent one-off reminder files a new one at the same Kyiv
+    wall-clock time the next day, by whoever tapped, for the same people."""
+    import re
+
+    mid = db.insert_message("oleh", "oleh", "...")
+    rid = db.create_reminder(
+        "Саксенда купити",
+        who=None,
+        at="2026-09-21T16:30:00Z",
+        created_by="oleh",
+        source_message_id=mid,
+    )
+    r = db.get_reminder(rid)
+    assert r is not None
+    kb = reminder_keyboard(r)
+    assert kb is not None
+    ((button,),) = kb.inline_keyboard
+    assert (button.text, button.callback_data) == ("Нагадати завтра", f"reminder:tomorrow:{rid}")
+    assert re.match(REMINDER_PATTERN, button.callback_data or "")
+    assert re.match(TAP_PATTERN, button.callback_data or "") and re.match(
+        TAP_PATTERN, "todo:done:1"
+    )
+    assert not re.match(TAP_PATTERN, "reminder:done:1")
+    daily = db.create_reminder(
+        "Планка",
+        who="oleh",
+        at="2026-09-21T16:30:00Z",
+        created_by="oleh",
+        source_message_id=mid,
+        repeat="daily",
+    )
+    assert reminder_keyboard(db.get_reminder(daily)) is None  # type: ignore[arg-type]
+
+    # Not sent yet (no button in a chat, but a stale callback could come): nothing happens
+    now = datetime(2026, 9, 21, 16, 35, tzinfo=UTC)  # 19:35 in Kyiv, five minutes after
+    assert reminder_tap(db, f"reminder:tomorrow:{rid}", "anna", now, KYIV) == (
+        "Нагадування не знайдено.",
+        None,
+    )
+    assert db.finish_reminder(rid, "sent")
+    toast, text = reminder_tap(db, f"reminder:tomorrow:{rid}", "anna", now, KYIV)
+    assert (toast, text) == (
+        "Нагадаю завтра о 19:30.",
+        "⏰ Саксенда купити\nНагадаю завтра о 19:30.",
+    )
+    (new,) = [x for x in db.pending_reminders() if x.text == "Саксенда купити"]
+    assert (new.at, new.who, new.created_by, new.repeat) == (
+        "2026-09-22T16:30:00Z",
+        None,
+        "anna",
+        None,
+    )
+    assert new.source_message_id == mid
+    # A stale tap two days on, in the afternoon: the same time on the first day still
+    # ahead, which is that day, so the note names the date
+    late = datetime(2026, 9, 23, 10, 0, tzinfo=UTC)
+    assert (
+        reminder_tap(db, f"reminder:tomorrow:{rid}", "oleh", late, KYIV)[0]
+        == "Нагадаю 23.09 о 19:30."
+    )
+    assert reminder_tap(db, "reminder:tomorrow:999", "oleh", now, KYIV) == (
+        "Нагадування не знайдено.",
+        None,
+    )
