@@ -1,5 +1,5 @@
 {# the days of a week on the web home: a small heading per day (today marked), its rows
-   under it. Included for each week and for the tail under «далі» #}
+   under it. Included for each week and for what comes after them, «Далі» #}
 {% for day in days %}
 <h3{% if day.today %} class="now"{% endif %}>{{ day.title }}</h3>
 <ul>

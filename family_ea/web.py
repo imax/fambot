@@ -180,7 +180,7 @@ def build_web(
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
         """This week and the next (events and todos by day, the todos planned for the
-        week, what is late), the rest of the calendar under «далі», the pending reminders,
+        week, what is late), the rest of the calendar under «Далі», the pending reminders,
         the todos without a day or a week by project, the last done ones; `?q=` searches
         instead: events, todos, items, and the sections of the notes page."""
         if q and q.strip():

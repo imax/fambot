@@ -5,7 +5,7 @@
    heading per day from today on (today always), under it the events with the time on the
    left and the todos of that day with their «☐» there; then the todos planned for the
    week without a day. This week starts with what is late. What comes after the two weeks
-   is one line («далі: 07.10 Стрижка · …») that unfolds into the same days. What goes
+   stands under «Далі», the same days by the calendar. What goes
    where is said in the chat; the page marks a todo done and edits its text #}
 {% for w in plan.weeks %}
 <h2>{{ w.title }} <span class="meta">· {{ w.span }}</span></h2>
@@ -26,11 +26,9 @@
 </div>
 {% endfor %}
 {% if plan.later %}
+<h2>Далі</h2>
 <div class="agenda">
-<details>
-  <summary>далі: {{ plan.later_line }}</summary>
-  {% with days = plan.later %}{% include "_days.html" %}{% endwith %}
-</details>
+{% with days = plan.later %}{% include "_days.html" %}{% endwith %}
 </div>
 {% endif %}
 {# the pending reminders: «⏰» rows nobody taps, by time, the repeating ones last.

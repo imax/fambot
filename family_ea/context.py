@@ -403,8 +403,8 @@ class Day:
 @dataclass
 class Week:
     """One week of the web home, Monday to Sunday: the days from today on that hold an
-    event or a todo (today always, even empty), and the todos planned for the week without
-    a day. This week also holds what is late: the todos past their day (`overdue`), and
+    event or a todo (in this week today always, even empty), and the todos planned for the
+    week without a day. This week also holds what is late: the todos past their day (`overdue`), and
     among `rows` the ones left over from an earlier week, noted so; nothing moves them on
     or out but a person."""
 
@@ -417,23 +417,22 @@ class Week:
 
     @property
     def empty(self) -> bool:
-        return not (self.overdue or self.days or self.rows)
+        """Nothing in it; an empty today alone does not count."""
+        return not (self.overdue or self.rows or any(d.rows for d in self.days))
 
 
 @dataclass
 class Plan:
-    """The web home's view of time: this week, the next one when it holds anything, and
-    everything after them as one line that unfolds into days ('далі: 07.10 Стрижка · …').
+    """The web home's view of time: this week and the next one, each when it holds
+    anything (a Sunday evening with nothing left starts at the next week; when neither
+    holds anything, this week stays, with its empty today), and
+    everything after them under «Далі», the same days with no week around them (until
+    2026-09-27 a line that unfolded, 'далі: 07.10 Стрижка · …').
     The week is the unit the family plans in (2026-09-27); before that the page had a
     calendar of events and a list of dated todos apart."""
 
     weeks: list[Week] = field(default_factory=list)
     later: list[Day] = field(default_factory=list)
-
-    @property
-    def later_line(self) -> str:
-        """The tail as text, for the line that unfolds it: '07.10 Стрижка · 26.10 Канікули'."""
-        return " · ".join(f"{d.when:%d.%m} {r.text}" for d in self.later for r in d.rows)
 
 
 @dataclass
@@ -552,7 +551,7 @@ def build_plan(
             plan.later.append(d)
         else:
             (nxt if day >= nxt.start else this).days.append(d)
-    plan.weeks = [this] if nxt.empty else [this, nxt]
+    plan.weeks = [w for w in (this, nxt) if not w.empty] or [this]
     return plan
 
 

@@ -73,9 +73,8 @@ def test_plan_puts_events_into_weeks(family: Family) -> None:
     ]
     assert [d.today for d in this.days] == [True, False, False]
     assert [d.title for d in nxt.days] == ["Вівторок 15.09", "Неділя 20.09"]
-    # what comes after the two weeks waits under «далі»
+    # what comes after the two weeks stands under «Далі»
     assert [d.title for d in plan.later] == ["Понеділок 21.09", "Середа 07.10"]
-    assert plan.later_line == "21.09 Понеділок · 07.10 Стрижка"
     today, tomorrow, saturday = this.days
     assert [(r.kind, r.id, r.time, r.note) for r in today.rows] == [
         ("event", 3, "весь день", "до 19.09"),
@@ -160,17 +159,23 @@ def test_reminder_rows(family: Family) -> None:
 def test_an_empty_plan_keeps_this_week_and_today(family: Family) -> None:
     assert undated_groups([], family) == [Group("", [])]
     plan = build_plan([], [], NOW, family)
-    (this,) = plan.weeks  # the next week shows up when it holds something
+    (this,) = plan.weeks  # nothing anywhere: this week stays, with its empty today
     assert [(d.title, d.rows, d.today) for d in this.days] == [("Сьогодні, четвер 10.09", [], True)]
     assert this.overdue == [] and this.rows == []
-    assert plan.later == [] and plan.later_line == ""
+    assert plan.later == []
 
-    # On a Sunday this week is that one day; Monday belongs to the next.
+    # On a Sunday this week is that one day; Monday belongs to the next. With nothing
+    # left in it, the week is not shown: an empty today under its heading says nothing.
     sunday = datetime(2026, 9, 13, 20, 0, tzinfo=KYIV)
-    plan = build_plan([_e(1, text="Буріння", date_from="2026-09-14")], [], sunday, family)
+    monday = [_e(1, text="Буріння", date_from="2026-09-14")]
+    (nxt,) = build_plan(monday, [], sunday, family).weeks
+    assert nxt.title == "Наступний тиждень" and nxt.span == "14.09–20.09"
+    assert [d.title for d in nxt.days] == ["Завтра, понеділок 14.09"]
+    # Anything in it brings it back, the empty today with it.
+    plan = build_plan(monday, [_c(1, text="Газовик пінг", week="2026-09-07")], sunday, family)
     this, nxt = plan.weeks
-    assert this.span == "07.09–13.09" and [d.title for d in this.days] == ["Сьогодні, неділя 13.09"]
-    assert nxt.span == "14.09–20.09" and [d.title for d in nxt.days] == ["Завтра, понеділок 14.09"]
+    assert this.span == "07.09–13.09" and [r.id for r in this.rows] == [1]
+    assert [(d.title, d.rows) for d in this.days] == [("Сьогодні, неділя 13.09", [])]
 
 
 def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -218,7 +223,7 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     heads = [
         '<h2>Цей тиждень <span class="meta">· 07.09–13.09</span></h2>',
         '<h2>Наступний тиждень <span class="meta">· 14.09–20.09</span></h2>',
-        "<summary>далі: 07.10 Стрижка</summary>",
+        "<h2>Далі</h2>",
         "<h2>Нагадування</h2>",
         "<h2>Без дати</h2>",
         "<h2>Зроблено</h2>",
@@ -260,9 +265,10 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     assert "<h3>Вівторок 15.09</h3>" in following  # the all-day event on 15.09
     assert re.search(r'<span class="time allday">весь день</span>\s*<span>Буріння', following)
     assert "Протягом тижня" not in following and "Прострочено" not in following
-    # what comes after the two weeks is one line that unfolds into the same days
+    # what comes after the two weeks: «Далі», the same days, in full (no line to unfold)
     tail = home[home.index(heads[2]) : home.index(heads[3])]
-    assert "<h3>Середа 07.10</h3>" in tail
+    assert "<h3>Середа 07.10</h3>" in tail and "Стрижка" in tail
+    assert "<details>" not in home and "далі:" not in home
 
     # «Нагадування»: its own block under the weeks, «⏰» for «☐»
     ahead = home[home.index("<h2>Нагадування</h2>") : home.index("<h2>Без дати</h2>")]

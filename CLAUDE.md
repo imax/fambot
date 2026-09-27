@@ -54,8 +54,8 @@ family_ea/
                 todo buckets (today/overdue/week/ahead/open/later), the weeks (`week_start`,
                 `week_note`), the project lines, the dream lines, the notes page for the
                 LLM, the digest text, the web home (`build_plan`: this week and the next,
-                events and todos by day, the week's todos, what is late, the tail under
-                «далі»; the pending reminders; `undated_groups`: the todos without a day
+                events and todos by day, the week's todos, what is late, the rest under
+                «Далі»; the pending reminders; `undated_groups`: the todos without a day
                 or a week in a group per project), the search stems
   llm.py        pydantic output schema, system prompt, the one messages.parse() call
   ops.py        apply LLM ops to db, with validation and an `applied` log
@@ -165,7 +165,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   snaps it to the Monday, `ops.normalize_week`; a week that is over is refused); on a
   Sunday «на тиждень» means the one that starts tomorrow (prompt only). The context
   lists the days of both weeks with their dates (`context.week_days`), so the model
-  reads a weekday's date instead of counting it. The plan is one
+  reads a weekday's date instead of counting it. A day inside an item of a plan («Буріння
+  (вт)») is a hint, not a deadline: it stays in the text and the todo goes into the week
+  (prompt only; asked for on the first evening, since the day was not the family's to set). The plan is one
   list for the family, the owner next to each row. **A week is not a project**: a project
   is what a todo is about, a week is when; a todo taken into a week keeps its
   `project_id` and comes back to its project's list when the week is taken off («зніми з
@@ -174,7 +176,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   (`context.week_note`), until a person closes, moves or takes it off. No job rolls
   anything over. The web home is the weeks (`context.build_plan`): «Цей тиждень»
   (what is late, the days from today on with their events and todos, «Протягом тижня»),
-  «Наступний тиждень» when it holds anything, the rest as a line «далі: …»; the separate
+  «Наступний тиждень», each only when it holds anything (both empty: this one stays),
+  the rest under «Далі», the same days in full (a line that unfolded until that
+  evening); the separate
   calendar block and the «Задачі» list of dated todos went into it. Events stay their
   own table: a time, reminders relative to it, a notice to the others. A todo planned
   for a week gets no nudge. The web does not set a week yet, the chat does.
