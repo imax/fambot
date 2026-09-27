@@ -1,10 +1,20 @@
+import asyncio
 from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from telegram import Chat, Message, Update, User
+from telegram.constants import ChatAction
 
 from family_ea.auth import verify
-from family_ea.bot import build_bot, family_filter, help_text, login_link, open_keyboard
+from family_ea.bot import (
+    build_bot,
+    family_filter,
+    help_text,
+    keep_typing,
+    login_link,
+    open_keyboard,
+)
 from family_ea.db import Database, Member
 from family_ea.family import Family
 from family_ea.pipeline import Pipeline
@@ -64,3 +74,28 @@ def test_help_text_lists_commands() -> None:
     assert "10:00" in text and "«Завтра»" in text
     assert "Фото" in text and "під річчю" in text
     assert "/start" not in text
+
+
+async def test_typing_is_kept_up_until_the_reply() -> None:
+    """One «typing…» lasts five seconds and the model may take a minute: the status is sent
+    again and again until the task is cancelled; a failed send does not stop it."""
+
+    class FakeChat:
+        def __init__(self) -> None:
+            self.actions: list[str] = []
+
+        async def send_action(self, action: str) -> None:
+            self.actions.append(action)
+            if len(self.actions) == 2:
+                raise RuntimeError("telegram hiccup")
+
+    chat = FakeChat()
+    task = asyncio.create_task(keep_typing(chat, every=0.01))  # type: ignore[arg-type]
+    await asyncio.sleep(0.08)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(chat.actions) >= 3 and set(chat.actions) == {ChatAction.TYPING}
+    sent = len(chat.actions)
+    await asyncio.sleep(0.03)
+    assert len(chat.actions) == sent  # cancelled: silence

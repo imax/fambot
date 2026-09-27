@@ -163,7 +163,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   one given takes the other away (`ops._todo_fields`), and a todo with a day is in its
   week by that day. The LLM says `week: this | next` (or any date of a later week; code
   snaps it to the Monday, `ops.normalize_week`; a week that is over is refused); on a
-  Sunday «на тиждень» means the one that starts tomorrow (prompt only). The plan is one
+  Sunday «на тиждень» means the one that starts tomorrow (prompt only). The context
+  lists the days of both weeks with their dates (`context.week_days`), so the model
+  reads a weekday's date instead of counting it. The plan is one
   list for the family, the owner next to each row. **A week is not a project**: a project
   is what a todo is about, a week is when; a todo taken into a week keeps its
   `project_id` and comes back to its project's list when the week is taken off («зніми з

@@ -65,6 +65,14 @@ def fmt_week(monday: date) -> str:
     return f"{monday:%d.%m}–{monday + WEEK - timedelta(days=1):%d.%m}"
 
 
+def week_days(monday: date) -> str:
+    """'пн 2026-09-28, вт 2026-09-29, …, нд 2026-10-04': the days of a week for the LLM,
+    so that it reads a weekday's date instead of counting it (2026-09-27: «(чт)» of a week
+    that crosses into October came back as Friday's date)."""
+    days = (monday + timedelta(days=n) for n in range(7))
+    return ", ".join(f"{WEEKDAYS_SHORT_UK[d.weekday()]} {d.isoformat()}" for d in days)
+
+
 def week_note(monday: date, today: date | None, in_week: bool = False) -> str:
     """The week a todo is planned for, as a note next to it: 'цей тиждень', 'наступний
     тиждень', 'тиждень 12.10–18.10'; one left over from an earlier week is still in the
@@ -751,8 +759,8 @@ def build_context(
             "Зараз",
             [
                 f"{now.strftime('%Y-%m-%d %H:%M')} ({tz.key}), {WEEKDAYS_UK[now.weekday()]}",
-                f"Цей тиждень (week: this): {fmt_week(this_week)}, з понеділка по неділю;"
-                f" наступний (week: next): {fmt_week(this_week + WEEK)}",
+                f"Цей тиждень (week: this), з понеділка по неділю: {week_days(this_week)}",
+                f"Наступний тиждень (week: next): {week_days(this_week + WEEK)}",
             ],
         ),
         section("Сім'я (пишуть боту; решта людей — у фактах)", [family.describe()]),

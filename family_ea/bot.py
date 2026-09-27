@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import logging
@@ -12,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from telegram import (
     BotCommand,
+    Chat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     LinkPreviewOptions,
@@ -43,6 +45,7 @@ log = logging.getLogger(__name__)
 TG_MAX_LEN = 4000
 PRIVATE_BOT = "Це приватний сімейний бот."
 REMINDER_INTERVAL = 60  # seconds between checks for due reminders
+TYPING_EVERY = 4.0  # seconds; Telegram drops «typing…» five seconds after each send_action
 REMINDER_MAX_LATE = timedelta(hours=3)  # due longer ago than this (downtime): missed, not sent
 KYIV = ZoneInfo("Europe/Kyiv")  # the default of deliver_due_reminders; serve() passes settings.tz
 NUDGE_PATTERN = r"^todo:(done|tomorrow):\d+$"  # the callback data of a nudge's two buttons
@@ -60,6 +63,18 @@ COMMANDS = [
 
 def _clip(text: str) -> str:
     return text if len(text) <= TG_MAX_LEN else text[: TG_MAX_LEN - 1] + "…"
+
+
+async def keep_typing(chat: Chat, every: float = TYPING_EVERY) -> None:
+    """«typing…» in `chat` until cancelled. One send_action shows for five seconds, and a
+    long list takes the model up to a minute: a plan for the week was answered in 53 s on
+    2026-09-27, and the silence looked like a crash."""
+    while True:
+        try:
+            await chat.send_action(ChatAction.TYPING)
+        except Exception:  # the status is a courtesy; the reply does not depend on it
+            log.debug("typing status not sent", exc_info=True)
+        await asyncio.sleep(every)
 
 
 def help_text(settings: Settings) -> str:
@@ -415,14 +430,18 @@ def build_bot(
         photo_file_id: str | None = None,
     ) -> None:
         assert update.message
-        outcome = await pipeline.handle(
-            person,
-            text,
-            is_voice=is_voice,
-            photo=photo,
-            photo_file_id=photo_file_id,
-            tg_message_id=update.message.message_id,
-        )
+        typing = asyncio.create_task(keep_typing(update.message.chat))
+        try:
+            outcome = await pipeline.handle(
+                person,
+                text,
+                is_voice=is_voice,
+                photo=photo,
+                photo_file_id=photo_file_id,
+                tg_message_id=update.message.message_id,
+            )
+        finally:
+            typing.cancel()
         sent = await update.message.reply_text(_clip(outcome.reply))
         db.set_tg_message_id(outcome.bot_message_id, sent.message_id)
 
