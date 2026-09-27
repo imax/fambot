@@ -403,7 +403,8 @@ class Day:
 @dataclass
 class Week:
     """One week of the web home, Monday to Sunday: the days from today on that hold an
-    event or a todo (in this week today always, even empty), and the todos planned for the
+    event or a todo (a day with nothing, today too, is left out: until 2026-09-27 an
+    empty today stood there with «Відпочиваємо :-)»), and the todos planned for the
     week without a day. This week also holds what is late: the todos past their day (`overdue`), and
     among `rows` the ones left over from an earlier week, noted so; nothing moves them on
     or out but a person."""
@@ -417,15 +418,14 @@ class Week:
 
     @property
     def empty(self) -> bool:
-        """Nothing in it; an empty today alone does not count."""
-        return not (self.overdue or self.rows or any(d.rows for d in self.days))
+        return not (self.overdue or self.days or self.rows)
 
 
 @dataclass
 class Plan:
     """The web home's view of time: this week and the next one, each when it holds
     anything (a Sunday evening with nothing left starts at the next week; when neither
-    holds anything, this week stays, with its empty today), and
+    holds anything, this week stays, empty, and the page says «Відпочиваємо :-)»), and
     everything after them under «Далі», the same days with no week around them (until
     2026-09-27 a line that unfolded, 'далі: 07.10 Стрижка · …').
     The week is the unit the family plans in (2026-09-27); before that the page had a
@@ -486,7 +486,7 @@ def build_plan(
     nxt = Week(this.start + WEEK, "Наступний тиждень", fmt_week(this.start + WEEK))
     horizon = nxt.start + WEEK  # the first day past the two weeks
     names = {p.id: p.name for p in projects or []}
-    by_day: dict[date, list[tuple[tuple, Row]]] = {today: []}
+    by_day: dict[date, list[tuple[tuple, Row]]] = {}
     overdue: list[tuple[tuple, Row]] = []
 
     def place(day: date, key: tuple, row: Row) -> None:

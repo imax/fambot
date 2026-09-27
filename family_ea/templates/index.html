@@ -2,7 +2,7 @@
 {% block title %}Задачі{% endblock %}
 {% block body %}
 {# the weeks, Monday to Sunday: this one, and the next when it holds anything. A small
-   heading per day from today on (today always), under it the events with the time on the
+   heading per day from today on (only the days that hold something), under it the events with the time on the
    left and the todos of that day with their «☐» there; then the todos planned for the
    week without a day. This week starts with what is late. What comes after the two weeks
    stands under «Далі», the same days by the calendar. What goes
@@ -10,6 +10,9 @@
 {% for w in plan.weeks %}
 <h2>{{ w.title }} <span class="meta">· {{ w.span }}</span></h2>
 <div class="agenda">
+{% if w.empty %}{# nothing in either week: this one stays, as the page's empty state #}
+<ul><li class="empty">Відпочиваємо :-)</li></ul>
+{% endif %}
 {% if w.overdue %}
 <h3 class="overdue">Прострочено</h3>
 <ul class="overdue">

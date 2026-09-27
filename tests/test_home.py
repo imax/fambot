@@ -156,26 +156,29 @@ def test_reminder_rows(family: Family) -> None:
     assert reminder_rows([], NOW, family) == []
 
 
-def test_an_empty_plan_keeps_this_week_and_today(family: Family) -> None:
+def test_an_empty_plan_keeps_this_week(family: Family) -> None:
     assert undated_groups([], family) == [Group("", [])]
     plan = build_plan([], [], NOW, family)
-    (this,) = plan.weeks  # nothing anywhere: this week stays, with its empty today
-    assert [(d.title, d.rows, d.today) for d in this.days] == [("Сьогодні, четвер 10.09", [], True)]
-    assert this.overdue == [] and this.rows == []
+    (this,) = plan.weeks  # nothing anywhere: this week stays, as the page's empty state
+    assert this.title == "Цей тиждень" and this.empty
+    assert this.days == [] and this.overdue == [] and this.rows == []
     assert plan.later == []
 
     # On a Sunday this week is that one day; Monday belongs to the next. With nothing
-    # left in it, the week is not shown: an empty today under its heading says nothing.
+    # left in it, the week is not shown.
     sunday = datetime(2026, 9, 13, 20, 0, tzinfo=KYIV)
     monday = [_e(1, text="Буріння", date_from="2026-09-14")]
     (nxt,) = build_plan(monday, [], sunday, family).weeks
     assert nxt.title == "Наступний тиждень" and nxt.span == "14.09–20.09"
     assert [d.title for d in nxt.days] == ["Завтра, понеділок 14.09"]
-    # Anything in it brings it back, the empty today with it.
+    # Anything in it brings it back; a day with nothing in it, today too, stays out.
     plan = build_plan(monday, [_c(1, text="Газовик пінг", week="2026-09-07")], sunday, family)
     this, nxt = plan.weeks
     assert this.span == "07.09–13.09" and [r.id for r in this.rows] == [1]
-    assert [(d.title, d.rows) for d in this.days] == [("Сьогодні, неділя 13.09", [])]
+    assert this.days == []
+    todos = [_c(2, text="Пошта", due="2026-09-13")]
+    (this, nxt) = build_plan(monday, todos, sunday, family).weeks
+    assert [(d.title, d.today) for d in this.days] == [("Сьогодні, неділя 13.09", True)]
 
 
 def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -214,6 +217,9 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     db.create_todo(
         "Забрати форму", owner="anna", created_by="oleh", source_message_id=mid, due="2026-09-11"
     )
+    db.create_todo(
+        "Пошта", owner="oleh", created_by="oleh", source_message_id=mid, due="2026-09-10"
+    )
     done = db.create_todo("Замовити воду", owner="anna", created_by="anna", source_message_id=mid)
     db.close_todo(done, "done")
     client = TestClient(build_web(_settings(), family, db))
@@ -232,14 +238,14 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     assert "На сьогодні" not in home and "<h2>Календар</h2>" not in home  # until 2026-09-27
     assert "<h2>Задачі</h2>" not in home and '<h2 class="overdue">' not in home
 
-    # This week: what is late, then a heading per day from today on (today always, and
-    # marked), then what is planned for the week without a day.
+    # This week: what is late, then a heading per day from today on (today marked; only
+    # the days that hold something), then what is planned for the week without a day.
     week = home[home.index(heads[0]) : home.index(heads[1])]
     parts = [
         '<h3 class="overdue">Прострочено</h3>',
         "Купити квіти",
         '<h3 class="now">Сьогодні, четвер 10.09</h3>',
-        "Відпочиваємо :-)",  # empty today, listed
+        "Пошта",
         "<h3>Завтра, п'ятниця 11.09</h3>",
         "15:30</span>",
         "Забрати форму",  # the todo of that day, after its events
@@ -257,7 +263,8 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
         r'☐</span>\s*<span><span class="text">Газовик пінг</span> <span class="meta">· Олег<',
         week,
     )
-    assert week.count("☐") == 3 and week.count('class="edit"') == 3
+    assert week.count("☐") == 4 and week.count('class="edit"') == 4
+    assert "Відпочиваємо" not in home and "<h3>Субота" not in week  # no empty days
     assert 'class="grip"' not in week  # the order within a week is not set by hand
     assert "⏰" not in week and "14:30" not in week
 
@@ -409,8 +416,10 @@ def test_web_home_empty(db: Database, family: Family, monkeypatch: pytest.Monkey
     assert "Прострочено" not in home and "<h2>Сьогодні" not in home
     assert home.count("нічого") == 1  # undated, empty
     assert "<h2>Зроблено</h2>" not in home
-    assert "Відпочиваємо :-)" in home  # today, empty, is always there
-    assert home.count("<h3") == 1
+    # Nothing in either week: this one stays and says so, without a day under it.
+    assert '<h2>Цей тиждень <span class="meta">· 07.09–13.09</span></h2>' in home
+    assert home.count("Відпочиваємо :-)") == 1 and "<h3" not in home
+    assert "Наступний тиждень" not in home and "<h2>Далі</h2>" not in home
 
 
 def test_web_home_groups_undated_todos_by_project(

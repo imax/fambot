@@ -1,11 +1,8 @@
 {# the days of a week on the web home: a small heading per day (today marked), its rows
-   under it. Included for each week and for what comes after them, «Далі» #}
+   under it; a day is there only when it holds something. Included for each week and for what comes after them, «Далі» #}
 {% for day in days %}
 <h3{% if day.today %} class="now"{% endif %}>{{ day.title }}</h3>
 <ul>
-  {% for r in day.rows %}{% include "_slot.html" %}
-  {% else %}
-  <li class="empty">Відпочиваємо :-)</li>
-  {% endfor %}
+  {% for r in day.rows %}{% include "_slot.html" %}{% endfor %}
 </ul>
 {% endfor %}

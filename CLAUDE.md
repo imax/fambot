@@ -175,8 +175,10 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   what was not done stays in this week's plan, noted «з минулого тижня»
   (`context.week_note`), until a person closes, moves or takes it off. No job rolls
   anything over. The web home is the weeks (`context.build_plan`): «Цей тиждень»
-  (what is late, the days from today on with their events and todos, «Протягом тижня»),
-  «Наступний тиждень», each only when it holds anything (both empty: this one stays),
+  (what is late, the days from today on that hold an event or a todo, today like any
+  other, «Протягом тижня»),
+  «Наступний тиждень», each only when it holds anything (both empty: this one stays and
+  says «Відпочиваємо :-)»),
   the rest under «Далі», the same days in full (a line that unfolded until that
   evening); the separate
   calendar block and the «Задачі» list of dated todos went into it. Events stay their
