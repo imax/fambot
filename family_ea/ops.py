@@ -1,5 +1,5 @@
 """Apply LLM operations to the database: items, events, todos, projects, dreams, reminders,
-the today board, the notes page.
+the notes page.
 
 Invalid ops (unknown ids, closed items, bad dates, an event without a date, a reminder
 without a time) are ignored and logged, never fatal; `failure_note` puts them under the
@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import db as db_module
+from .context import WEEK, week_start
 from .db import REMINDER_REPEATS, Database
 from .family import Family
 from .llm import EventOp, ItemOp, LlmResult, ReminderOp, TodoOp
@@ -33,7 +34,6 @@ KIND_UK = {
     "project": "проєкт",
     "dream": "мрію",
     "reminder": "нагадування",
-    "today": "список на сьогодні",
     "notes": "нотатки",
 }
 OP_UK = {
@@ -48,7 +48,7 @@ OP_UK = {
 
 @dataclass(frozen=True)
 class Applied:
-    kind: str  # item | event | todo | project | dream | reminder | today | notes
+    kind: str  # item | event | todo | project | dream | reminder | notes
     op: str
     id: int | None
     ok: bool
@@ -78,6 +78,19 @@ def normalize_date(value: str | None) -> str | None:
         return date.fromisoformat(value[:10]).isoformat()
     except ValueError:
         return None
+
+
+def normalize_week(value: str, today: date) -> str | None:
+    """The Monday (ISO date) of the week the LLM named: `this`, `next`, or any day of it.
+    None if unparsable, or a week that is over: nothing is planned for the past."""
+    value = value.strip().lower()
+    this = week_start(today)
+    if value in ("this", "next"):
+        return (this if value == "this" else this + WEEK).isoformat()
+    day = normalize_date(value)
+    if day is None or (monday := week_start(date.fromisoformat(day))) < this:
+        return None
+    return monday.isoformat()
 
 
 def normalize_member(member_id: str, family: Family) -> str | None:
@@ -155,12 +168,14 @@ def normalize_project(value: str, db: Database) -> int | None:
     return p.id if p else None
 
 
-def _todo_fields(t: TodoOp, family: Family, db: Database) -> tuple[dict, list[str]]:
+def _todo_fields(t: TodoOp, family: Family, db: Database, tz: ZoneInfo) -> tuple[dict, list[str]]:
     """Validated fields present on the op, plus notes about anything dropped. An unknown
     project raises OpError: the todo must not land in the wrong group or silently in none.
 
-    A nudge (`remind_on`, set by code only) is for a loose end, a todo with neither a day
-    nor a project; a day or a project given here takes the pending nudge with it."""
+    A todo has one «when», a day (`due`) or a week (`week`, its Monday): the one given
+    here takes the other away, and a day beats a week when both came. A nudge (`remind_on`,
+    set by code only) is for a loose end, a todo with no day, week or project; any of them
+    given here takes the pending nudge with it."""
     fields: dict[str, str | int | None] = {}
     notes: list[str] = []
     given, project = _given(t.project)
@@ -181,16 +196,31 @@ def _todo_fields(t: TodoOp, family: Family, db: Database) -> tuple[dict, list[st
             notes.append(f"bad due {t.due!r} dropped")
         else:
             fields["due"] = due  # None: the deadline goes («без дати»)
-    if fields.get("due") or fields.get("project_id"):
+    given, week = _given(t.week)
+    if given:
+        if week is not None and (week := normalize_week(week, today(tz))) is None:
+            notes.append(f"bad week {t.week!r} dropped")
+        else:
+            fields["week"] = week  # None: out of the week's plan («зніми з тижня»)
+    if fields.get("due"):
+        fields["week"] = None
+    elif fields.get("week"):
+        fields["due"] = None
+    if fields.get("due") or fields.get("week") or fields.get("project_id"):
         fields["remind_on"] = None
     return fields, notes
 
 
-def nudge_day(tz: ZoneInfo) -> str:
-    """The day a new loose end gets its nudge: tomorrow, in the family's timezone. The
-    clock is `db.utc_now_iso`, the one the tests freeze."""
+def today(tz: ZoneInfo) -> date:
+    """Today in the family's timezone. The clock is `db.utc_now_iso`, the one the tests
+    freeze."""
     now = datetime.fromisoformat(db_module.utc_now_iso().replace("Z", "+00:00"))
-    return (now.astimezone(tz).date() + timedelta(days=1)).isoformat()
+    return now.astimezone(tz).date()
+
+
+def nudge_day(tz: ZoneInfo) -> str:
+    """The day a new loose end gets its nudge: tomorrow, in the family's timezone."""
+    return (today(tz) + timedelta(days=1)).isoformat()
 
 
 def _event_fields(e: EventOp, family: Family, tz: ZoneInfo) -> tuple[dict, list[str]]:
@@ -425,7 +455,7 @@ def apply_ops(
 
     for t in result.todos:
         try:
-            fields, notes = _todo_fields(t, family, db)
+            fields, notes = _todo_fields(t, family, db, tz)
         except OpError as exc:
             applied.append(Applied("todo", t.op, t.id or None, False, str(exc)))
             continue
@@ -435,8 +465,8 @@ def apply_ops(
                 applied.append(Applied("todo", "create", None, False, "empty text"))
                 continue
             if "remind_on" not in fields:
-                # A loose end (no day, no project): the bot brings it up tomorrow at noon,
-                # once (see bot.deliver_due_nudges).
+                # A loose end (no day, no week, no project): the bot brings it up tomorrow
+                # at noon, once (see bot.deliver_due_nudges).
                 fields["remind_on"] = nudge_day(tz)
             tid = db.create_todo(
                 str(fields["text"] or ""),
@@ -446,6 +476,7 @@ def apply_ops(
                 due=fields.get("due"),  # type: ignore[arg-type]
                 project_id=fields.get("project_id"),  # type: ignore[arg-type]
                 remind_on=fields.get("remind_on"),  # type: ignore[arg-type]
+                week=fields.get("week"),  # type: ignore[arg-type]
             )
             applied.append(Applied("todo", "create", tid, True, note))
         elif t.op == "update":
@@ -525,23 +556,6 @@ def apply_ops(
                     "reminder", "cancel", r.id or None, ok, "" if ok else "not found or not pending"
                 )
             )
-
-    # The board of a member, replaced whole.
-    boards = (("today", result.today, db.current_today_lists, db.save_today_list),)
-    for kind, board_ops, current_boards, save_board in boards:
-        for t in board_ops:
-            member = author_id if not t.member else normalize_member(t.member, family)
-            if member is None:
-                applied.append(Applied(kind, "set", None, False, f"unknown member {t.member!r}"))
-                continue
-            text = t.text.strip()
-            current = current_boards().get(member)
-            if (current.text if current else "") == text:
-                applied.append(Applied(kind, "set", None, False, "unchanged"))
-                continue
-            bid = save_board(member, text, author_id)
-            note = "" if member == author_id else f"for {member}"
-            applied.append(Applied(kind, "set", bid, True, note))
 
     for n in result.notes:
         text = n.text.replace("\r\n", "\n").strip()

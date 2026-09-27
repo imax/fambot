@@ -2,7 +2,7 @@
   {{ c.text }}
   <div class="meta">
     {% if c.owner %}{{ c.owner | person }} · {% endif %}
-    {% if c | due %}{{ c | due }} · {% endif %}
+    {% if c | due %}{{ c | due }} · {% elif c.week %}тиждень з {{ c.week | date }} · {% endif %}
     {{ c.created_by | person }}, {{ c.created_at | dt }}
     {% if c.status != 'open' %} · {{ c.status }}{% endif %}
   </div>

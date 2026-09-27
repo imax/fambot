@@ -4,8 +4,9 @@ There is no password. `/web` in Telegram (and «Відкрити» under the dig
 a member a link to `/login?t=…`; opening it sets a long-lived signed cookie. Read-only except
 `/facts` and `/family`, the two things a human edits by hand, and three things about a
 todo, all through the db methods the LLM ops use: done («☐»), the text («✎») and the
-order of the undated ones (dragged), on the home page. The calendar on the home page (the
-days ahead), the dreams (`/dreams`) and the notes page (`/notes`, the LLM's Markdown
+order of the undated ones (dragged), on the home page. What goes into a week of the home
+page and when (events, the days and weeks of todos) is set in the chat; the dreams
+(`/dreams`) and the notes page (`/notes`, the LLM's Markdown
 rendered, its source photos under it) are only read.
 
 A voice message to the bot from the web: «🎙» in the nav records, `POST /send`
@@ -35,15 +36,14 @@ from markdown_it import MarkdownIt
 from .auth import SESSION_TTL, sign, verify
 from .config import Settings
 from .context import (
-    board_blocks,
-    build_calendar,
-    build_todo_lists,
+    build_plan,
     fmt_date,
     fmt_dt,
     fmt_due,
     fmt_event_when,
     reminder_rows,
     search_notes,
+    undated_groups,
     word_pattern,
 )
 from .db import Attachment, Database, Item, Member
@@ -179,11 +179,10 @@ def build_web(
     async def index(
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
-        """The boards (the viewer's own first), the calendar (two weeks of days with an
-        event, today always, the rest under «далі»), the pending reminders, the todos
-        (overdue; «Задачі»: the ones with a day; without a day by project), the last done
-        ones; `?q=` searches instead: events, todos, items, and the sections of the
-        notes page."""
+        """This week and the next (events and todos by day, the todos planned for the
+        week, what is late), the rest of the calendar under «далі», the pending reminders,
+        the todos without a day or a week by project, the last done ones; `?q=` searches
+        instead: events, todos, items, and the sections of the notes page."""
         if q and q.strip():
             q = q.strip()
             pattern = word_pattern(q)
@@ -203,18 +202,15 @@ def build_web(
                 },
             )
         now = datetime.now(settings.tz)
-        todos = build_todo_lists(db.open_todos(), now, family, projects=db.open_projects())
-        calendar = build_calendar(db.planned_events(), now, family)
-        reminders = reminder_rows(db.pending_reminders(), now, family)
+        todos, projects = db.open_todos(), db.open_projects()
         return templates.TemplateResponse(
             request,
             "index.html",
             {
                 "q": "",
-                "calendar": calendar,
-                "reminders": reminders,
-                "todos": todos,
-                "today": board_blocks(db.current_today_lists(), family, member.id, now),
+                "plan": build_plan(db.planned_events(), todos, now, family, projects),
+                "reminders": reminder_rows(db.pending_reminders(), now, family),
+                "undated": undated_groups(todos, family, projects),
                 "done": db.recent_done_todos(DONE_SHOWN),
             },
         )

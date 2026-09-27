@@ -1,5 +1,5 @@
 """Deterministic context for the LLM, the event agenda, todo buckets, the digest,
-the calendar and the todo lists of the web home.
+the weeks and the todo lists of the web home.
 
 Everything here is plain code: what is "today", what is "overdue", which items to
 show. The LLM only sees the result.
@@ -12,17 +12,18 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from .db import Board, Database, Dream, Event, Item, Member, Message, Notes, Project, Reminder, Todo
+from .db import Database, Dream, Event, Item, Member, Message, Notes, Project, Reminder, Todo
 from .family import Family
 
 RECENT_WINDOW_DAYS = 2  # items changed this recently are in every LLM context; older: search
 ITEM_HITS = 20  # items found by the message's words
 RECENT_MESSAGES = 20
 PAST_EVENT_DAYS = 7  # ended events stay in the LLM context this long ("коли був стоматолог?")
-ALL_DAY = "весь день"  # the calendar's label where a time would be
-CALENDAR_DAYS = 3  # the web calendar shows this many days with events in full; the rest is a line
+ALL_DAY = "весь день"  # the label of an all-day event where a time would be
 DEFAULT_EVENT_DURATION = timedelta(hours=1)
+WEEK = timedelta(days=7)  # Monday to Sunday
 WEEKDAYS_UK = ("понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота", "неділя")
+WEEKDAYS_SHORT_UK = ("пн", "вт", "ср", "чт", "пт", "сб", "нд")
 
 
 # --- dates -------------------------------------------------------------------
@@ -49,6 +50,34 @@ def fmt_date(iso_date: str) -> str:
 def fmt_due(t: Todo) -> str:
     """The deadline as '20.09'; '' when undated."""
     return fmt_date(t.due) if t.due else ""
+
+
+# --- weeks --------------------------------------------------------------------
+
+
+def week_start(d: date) -> date:
+    """The Monday of the week `d` is in: a week runs from Monday to Sunday."""
+    return d - timedelta(days=d.weekday())
+
+
+def fmt_week(monday: date) -> str:
+    """'28.09–04.10': the week that starts on `monday`."""
+    return f"{monday:%d.%m}–{monday + WEEK - timedelta(days=1):%d.%m}"
+
+
+def week_note(monday: date, today: date | None, in_week: bool = False) -> str:
+    """The week a todo is planned for, as a note next to it: 'цей тиждень', 'наступний
+    тиждень', 'тиждень 12.10–18.10'; one left over from an earlier week is still in the
+    plan and says since when: 'з минулого тижня', 'з тижня 14.09–20.09'. `in_week`: the
+    line sits in the list of its own week, which needs no note but the leftover's."""
+    if today is None:
+        return f"тиждень {fmt_week(monday)}"
+    this = week_start(today)
+    if monday in (this, this + WEEK):
+        return "" if in_week else ("цей тиждень" if monday == this else "наступний тиждень")
+    if monday == this - WEEK:
+        return "з минулого тижня"
+    return f"з тижня {fmt_week(monday)}" if monday < this else f"тиждень {fmt_week(monday)}"
 
 
 # --- events -------------------------------------------------------------------
@@ -148,23 +177,30 @@ def build_agenda(items: list[Event], now: datetime, past_days: int = PAST_EVENT_
 class Buckets:
     today: list[Todo] = field(default_factory=list)
     overdue: list[Todo] = field(default_factory=list)
-    open: list[Todo] = field(default_factory=list)  # no deadline
-    later: list[Todo] = field(default_factory=list)  # a deadline after today
+    week: list[Todo] = field(default_factory=list)  # no day; planned for this week or left
+    #                                                 over from an earlier one
+    ahead: list[Todo] = field(default_factory=list)  # no day; planned for a week to come
+    open: list[Todo] = field(default_factory=list)  # no day and no week
+    later: list[Todo] = field(default_factory=list)  # a day after today
 
 
 def bucket_todos(items: list[Todo], now: datetime) -> Buckets:
-    """Split open todos into today / overdue / open / later relative to `now`.
+    """Split open todos into today / overdue / week / ahead / open / later relative to
+    `now`.
 
     `now` must be timezone-aware in the family timezone; "today" is its date. Dated ones
-    are sorted by deadline, the undated keep their order (the hand-set one).
+    are sorted by deadline, the others keep their order (the hand-set one).
     """
     today = now.date().isoformat()
+    this_week = week_start(now.date()).isoformat()
     b = Buckets()
     for t in items:
         if not t.is_open:
             continue
-        if not t.due:
+        if not t.due and not t.week:
             b.open.append(t)
+        elif not t.due:
+            (b.week if (t.week or "") <= this_week else b.ahead).append(t)
         elif t.due < today:
             b.overdue.append(t)
         elif t.due == today:
@@ -177,15 +213,23 @@ def bucket_todos(items: list[Todo], now: datetime) -> Buckets:
 
 
 def todo_line(
-    t: Todo, family: Family, with_id: bool = True, projects: dict[int, str] | None = None
+    t: Todo,
+    family: Family,
+    with_id: bool = True,
+    projects: dict[int, str] | None = None,
+    today: date | None = None,
+    in_week: bool = False,
 ) -> str:
-    """`projects` (id -> name) adds «проєкт: Авто» to the meta; the digest passes none."""
+    """`projects` (id -> name) adds «проєкт: Авто» to the meta; the digest passes none.
+    `today` and `in_week` word the week of a todo planned for one (see `week_note`)."""
     parts = [f"[#{t.id}] " if with_id else "", t.text]
     meta = []
     if t.owner:
         meta.append(family.display_name(t.owner))
     if t.due:
         meta.append(fmt_due(t))
+    elif t.week and (note := week_note(date.fromisoformat(t.week), today, in_week)):
+        meta.append(note)
     if projects and t.project_id in projects:
         meta.append(f"проєкт: {projects[t.project_id]}")
     if meta:
@@ -225,69 +269,6 @@ def reminder_line(r: Reminder, family: Family, tz: ZoneInfo) -> str:
     return f"[нагадування #{r.id}] {fmt_dt(r.at, tz)} {r.text} ({to})"
 
 
-# --- boards: «на сьогодні» and «Не забути» ----------------------------------
-
-
-def stale_label(iso_utc: str, now: datetime) -> str:
-    """How old a board is: '' when changed today, 'вчора', else '09.09'."""
-    day = parse_iso(iso_utc).astimezone(now.tzinfo).date()
-    if day == now.date():
-        return ""
-    return "вчора" if day == now.date() - timedelta(days=1) else day.strftime("%d.%m")
-
-
-@dataclass(frozen=True)
-class BoardBlock:
-    """One member's board, ready to render; the web and the digest only lay it out."""
-
-    member: str
-    name: str
-    text: str  # '' when there is no board or it was cleared
-    stale: str  # '' when empty or changed today; 'вчора'; '09.09'
-
-
-def board_blocks(
-    lists: dict[str, Board], family: Family, viewer: str | None, now: datetime
-) -> list[BoardBlock]:
-    """Every member's board (of one kind), the viewer's own first."""
-    blocks = []
-    for m in sorted(family.members, key=lambda m: m.id != viewer):
-        board = lists.get(m.id)
-        text = board.text.strip() if board else ""
-        stale = stale_label(board.created_at, now) if board and text else ""
-        blocks.append(BoardBlock(m.id, m.name, text, stale))
-    return blocks
-
-
-def today_lines(blocks: list[BoardBlock], viewer: str) -> list[str]:
-    """The digest's head: 'На сьогодні (твоє):' then the others', a line per line of text.
-    Empty boards are skipped."""
-    lines: list[str] = []
-    for b in blocks:
-        if not b.text:
-            continue
-        who = "твоє" if b.member == viewer else b.name
-        note = f", оновлено {b.stale}" if b.stale else ""
-        lines.append(f"На сьогодні ({who}{note}):")
-        lines += [f"- {ln.strip()}" for ln in b.text.splitlines() if ln.strip()]
-    return lines
-
-
-def board_context_lines(lists: dict[str, Board], family: Family, tz: ZoneInfo) -> list[str]:
-    """For the LLM: every member's board (of one kind) with id, name and when it changed;
-    text as kept."""
-    lines = []
-    for m in family.members:
-        board = lists.get(m.id)
-        text = board.text.strip() if board else ""
-        if not board or not text:
-            lines.append(f"- {m.id} ({m.name}): порожньо")
-            continue
-        body = "\n".join(f"  {ln}" for ln in text.splitlines())
-        lines.append(f"- {m.id} ({m.name}), оновлено {fmt_dt(board.created_at, tz)}:\n{body}")
-    return lines
-
-
 # --- notes --------------------------------------------------------------------
 
 
@@ -302,24 +283,35 @@ def notes_context_lines(notes: Notes | None, family: Family, tz: ZoneInfo) -> li
 # --- digest -------------------------------------------------------------------
 
 
+def week_event_line(e: Event, family: Family, tz: ZoneInfo, with_id: bool = False) -> str:
+    """'ср 30.09 15:30 Стрижка (Олег)': an event later this week, its weekday first."""
+    head = f"[подія #{e.id}] " if with_id else ""
+    day = WEEKDAYS_SHORT_UK[event_span(e, tz)[0].weekday()]
+    return f"{head}{day} {event_line(e, family, tz, with_id=False)}"
+
+
 def _digest_lines(
     a: Agenda,
     b: Buckets,
     family: Family,
-    tz: ZoneInfo,
+    now: datetime,
     *,
     with_ids: bool,
     include_open: bool,
     max_open: int,
-    today: list[str],
 ) -> list[str]:
+    tz = now.tzinfo
+    assert isinstance(tz, ZoneInfo)
+    today = now.date()
+    sunday = week_start(today) + WEEK - timedelta(days=1)
+
     def ev(e: Event) -> str:
         return f"- {event_line(e, family, tz, with_id=with_ids, with_date=False)}"
 
     def td(t: Todo) -> str:
-        return f"- {todo_line(t, family, with_id=with_ids)}"
+        return f"- {todo_line(t, family, with_id=with_ids, today=today, in_week=True)}"
 
-    lines: list[str] = [*today]
+    lines: list[str] = []
     if a.today:
         lines += ["Сьогодні:", *map(ev, a.today)]
     if a.tomorrow:
@@ -328,6 +320,20 @@ def _digest_lines(
         lines += ["Задачі на сьогодні:", *map(td, b.today)]
     if b.overdue:
         lines += ["Прострочено:", *map(td, b.overdue)]
+    # The rest of the week: what happens after tomorrow, what has a day still to come,
+    # what is planned for the week without one.
+    week = [
+        f"- {week_event_line(e, family, tz, with_ids)}"
+        for e in a.later
+        if event_span(e, tz)[0].date() <= sunday
+    ]
+    week += [td(t) for t in b.later if t.due and t.due <= sunday.isoformat()]
+    week += map(td, b.week)
+    if week:
+        lines += ["Цього тижня:", *week]
+    if include_open and b.ahead:
+        ahead = [todo_line(t, family, with_id=with_ids, today=today) for t in b.ahead]
+        lines += ["Наступні тижні:", *(f"- {line}" for line in ahead)]
     if include_open and b.open:
         lines += ["Без дати:", *map(td, b.open[:max_open])]
         if len(b.open) > max_open:
@@ -335,40 +341,32 @@ def _digest_lines(
     return lines
 
 
-def render_digest(a: Agenda, b: Buckets, family: Family, tz: ZoneInfo, max_open: int = 5) -> str:
-    """Today / tomorrow / due / overdue / open, with ids, for the LLM context."""
-    lines = _digest_lines(
-        a, b, family, tz, with_ids=True, include_open=True, max_open=max_open, today=[]
-    )
+def render_digest(a: Agenda, b: Buckets, family: Family, now: datetime, max_open: int = 5) -> str:
+    """Today / tomorrow / due / overdue / this week / the weeks ahead / open, with ids, for
+    the LLM context."""
+    lines = _digest_lines(a, b, family, now, with_ids=True, include_open=True, max_open=max_open)
     return "\n".join(lines) if lines else "нічого"
 
 
-def digest_text(
-    a: Agenda,
-    b: Buckets,
-    family: Family,
-    tz: ZoneInfo,
-    *,
-    today: list[str] | None = None,
-) -> str | None:
-    """The morning push, and /today: the boards (`today`, from today_lines, the recipient's
-    own first), today's and tomorrow's events, today's and overdue todos. Never the
-    undated ones: they live on the web. None when there is nothing to say: an empty morning
-    stays silent. Deterministic on purpose: presentation, not understanding."""
-    lines = _digest_lines(
-        a, b, family, tz, with_ids=False, include_open=False, max_open=0, today=today or []
-    )
+def digest_text(a: Agenda, b: Buckets, family: Family, now: datetime) -> str | None:
+    """The morning push, and /today: today's and tomorrow's events, today's and overdue
+    todos, then the rest of the week: its events after tomorrow, the todos with a day still
+    to come in it and the ones planned for it without a day (the leftovers of an earlier
+    week among them). Never the undated ones: they live on the web. None when there is
+    nothing to say: an empty morning stays silent. Deterministic on purpose: presentation,
+    not understanding."""
+    lines = _digest_lines(a, b, family, now, with_ids=False, include_open=False, max_open=0)
     if not lines:
         return None
     return "\n".join(lines)
 
 
-# --- the calendar and the todo lists (the web) ----------------------------------
+# --- the weeks and the todo lists (the web) --------------------------------------
 
 
 @dataclass(frozen=True)
 class Row:
-    """One line of the web home (the calendar or a todo list), ready to render: a planned event, a
+    """One line of the web home (a week or a todo list), ready to render: a planned event, a
     pending reminder or an open todo. Everything is formatted here; the template only lays
     it out."""
 
@@ -377,15 +375,16 @@ class Row:
     text: str
     time: str = ""  # '16:00' (a start); ALL_DAY for an all-day event; '' for a todo
     all_day: bool = False  # the template styles the label, not a time
-    note: str = ""  # 'до 17:00' / 'до 19.09': an end still ahead; a todo's deadline
+    note: str = ""  # 'до 17:00' / 'до 19.09': an end still ahead; '09.09': the day a todo
+    #                 is late from; 'з минулого тижня': the week it is left over from
     who: str = ""  # display name; 'усім' for a reminder to everyone; '' when nobody in particular
-    project: str = ""  # a dated or overdue todo's project name; undated ones sit in its group
+    project: str = ""  # the project name of a todo in a week; undated ones sit in its group
 
 
 @dataclass
 class Day:
-    """One day of the web calendar: its heading ('Сьогодні, четвер 10.09', marked when
-    today) and its rows."""
+    """One day of a week on the web home: its heading ('Сьогодні, четвер 10.09', marked
+    when today) and its rows, events first, then the todos of that day."""
 
     when: date
     title: str
@@ -394,12 +393,33 @@ class Day:
 
 
 @dataclass
-class Calendar:
-    """The calendar on the web home: the next three days with events, and everything after
-    them as one line that unfolds into the same days ('далі: 07.10 Стрижка · …'). Most days
-    hold one row, so a long tail of single events would push the todos off the screen."""
+class Week:
+    """One week of the web home, Monday to Sunday: the days from today on that hold an
+    event or a todo (today always, even empty), and the todos planned for the week without
+    a day. This week also holds what is late: the todos past their day (`overdue`), and
+    among `rows` the ones left over from an earlier week, noted so; nothing moves them on
+    or out but a person."""
 
+    start: date
+    title: str  # 'Цей тиждень' | 'Наступний тиждень'
+    span: str  # '28.09–04.10'
+    overdue: list[Row] = field(default_factory=list)
     days: list[Day] = field(default_factory=list)
+    rows: list[Row] = field(default_factory=list)
+
+    @property
+    def empty(self) -> bool:
+        return not (self.overdue or self.days or self.rows)
+
+
+@dataclass
+class Plan:
+    """The web home's view of time: this week, the next one when it holds anything, and
+    everything after them as one line that unfolds into days ('далі: 07.10 Стрижка · …').
+    The week is the unit the family plans in (2026-09-27); before that the page had a
+    calendar of events and a list of dated todos apart."""
+
+    weeks: list[Week] = field(default_factory=list)
     later: list[Day] = field(default_factory=list)
 
     @property
@@ -418,18 +438,6 @@ class Group:
     project_id: int | None = None
 
 
-@dataclass
-class TodoLists:
-    """The open todos on the web home: past their day, with a day from today on, and
-    without one, in the hand-set order, a group per open project (in the order the
-    projects were made) and the ones without a project last; one group with no name when
-    there are no projects. The calendar is `build_calendar`, the reminders `reminder_rows`."""
-
-    overdue: list[Row] = field(default_factory=list)
-    dated: list[Row] = field(default_factory=list)
-    undated: list[Group] = field(default_factory=list)
-
-
 def day_title(d: date, today: date) -> str:
     """'Сьогодні, четвер 10.09', 'Завтра, п'ятниця 11.09', 'Середа 07.10'."""
     name = WEEKDAYS_UK[d.weekday()]
@@ -441,8 +449,7 @@ def day_title(d: date, today: date) -> str:
 
 
 def due_note(due: date, today: date) -> str:
-    """A todo's day next to its text: 'сьогодні', 'завтра', else '19.09'. No «до»: a todo
-    has one day, there is no deadline apart from it (2026-09-17)."""
+    """A day next to a text: 'сьогодні', 'завтра', else '19.09'."""
     if due == today:
         return "сьогодні"
     if due == today + timedelta(days=1):
@@ -450,25 +457,33 @@ def due_note(due: date, today: date) -> str:
     return f"{due:%d.%m}"
 
 
-def build_calendar(events: list[Event], now: datetime, family: Family) -> Calendar:
-    """The calendar on the web home: every day with a planned event, today always, even
-    empty; the days after the first `CALENDAR_DAYS` with events go to `later`, shown as one
-    line until someone unfolds them. Events only, where someone has to be: a reminder is a
-    push to do something and sits with the dated todos (`build_todo_lists`, 2026-09-17).
+def build_plan(
+    events: list[Event],
+    todos: list[Todo],
+    now: datetime,
+    family: Family,
+    projects: list[Project] | None = None,
+) -> Plan:
+    """The weeks of the web home: planned events and open todos with a day or a week.
 
-    A multi-day event still running sits on today with «до …». Within a day: all-day
-    events, then timed ones by time.
+    An event sits on its day; a multi-day one still running sits on today. A todo with a
+    day sits on it after the events, or under «Прострочено» of this week once the day has
+    passed. A todo planned for a week sits in that week's `rows`, in the order
+    `open_todos()` gives; one planned for a week that is over stays in this week's, noted
+    («з минулого тижня»). Days past next Sunday go to `later`.
     """
     tz = now.tzinfo
     assert isinstance(tz, ZoneInfo)
     today = now.date()
+    this = Week(week_start(today), "Цей тиждень", fmt_week(week_start(today)))
+    nxt = Week(this.start + WEEK, "Наступний тиждень", fmt_week(this.start + WEEK))
+    horizon = nxt.start + WEEK  # the first day past the two weeks
+    names = {p.id: p.name for p in projects or []}
     by_day: dict[date, list[tuple[tuple, Row]]] = {today: []}
+    overdue: list[tuple[tuple, Row]] = []
 
     def place(day: date, key: tuple, row: Row) -> None:
         by_day.setdefault(day, []).append((key, row))
-
-    def until_note(last: date, day: date) -> str:
-        return f"до {last:%d.%m}" if last > day else ""
 
     for e in events:
         if not e.is_planned:
@@ -479,7 +494,7 @@ def build_calendar(events: list[Event], now: datetime, family: Family) -> Calend
             continue
         day = max(first, today)
         if not e.starts_at:
-            note = until_note(last, day)
+            note = f"до {last:%d.%m}" if last > day else ""
         elif not e.until:
             note = ""
         else:
@@ -493,10 +508,31 @@ def build_calendar(events: list[Event], now: datetime, family: Family) -> Calend
             note=note,
             who=family.display_name(e.who) if e.who else "",
         )
-        place(day, (1, start.timestamp(), 0, e.id) if e.starts_at else (0, 0.0, 0, e.id), row)
+        place(day, (1, start.timestamp(), e.id) if e.starts_at else (0, 0.0, e.id), row)
 
-    cal = Calendar()
-    full = 0  # days with events shown so far; an empty today is on the page but not counted
+    for t in todos:
+        if not t.is_open or not (t.due or t.week):
+            continue
+        who = family.display_name(t.owner) if t.owner else ""
+        project = names.get(t.project_id, "") if t.project_id is not None else ""
+        if t.due:
+            due = date.fromisoformat(t.due)
+            if due < today:
+                row = Row("todo", t.id, t.text, note=f"{due:%d.%m}", who=who, project=project)
+                overdue.append(((due, t.id), row))
+            else:
+                place(due, (2, 0.0, t.id), Row("todo", t.id, t.text, who=who, project=project))
+            continue
+        monday = date.fromisoformat(t.week or "")
+        note = week_note(monday, today, in_week=True)
+        row = Row("todo", t.id, t.text, note=note, who=who, project=project)
+        if monday >= horizon:  # planned further ahead than the page shows weeks: on its Monday
+            place(monday, (3, 0.0, t.id), row)
+        else:
+            (nxt if monday == nxt.start else this).rows.append(row)
+
+    this.overdue = [row for _, row in sorted(overdue, key=lambda pair: pair[0])]
+    plan = Plan()
     for day in sorted(by_day):
         d = Day(
             day,
@@ -504,63 +540,37 @@ def build_calendar(events: list[Event], now: datetime, family: Family) -> Calend
             [row for _, row in sorted(by_day[day], key=lambda p: p[0])],
             today=day == today,
         )
-        (cal.days if full < CALENDAR_DAYS else cal.later).append(d)
-        full += bool(d.rows)
-    return cal
+        if day >= horizon:
+            plan.later.append(d)
+        else:
+            (nxt if day >= nxt.start else this).days.append(d)
+    plan.weeks = [this] if nxt.empty else [this, nxt]
+    return plan
 
 
-def build_todo_lists(
-    todos: list[Todo],
-    now: datetime,
-    family: Family,
-    projects: list[Project] | None = None,
-) -> TodoLists:
-    """Sort the open todos out for the home page.
-
-    Todos past their day are overdue, oldest first; the others with a day come by day,
-    nearest first («Задачі» on the web); the undated keep the order they come in:
-    `open_todos()` gives the hand-set one.
-    """
-    today = now.date()
-    overdue: list[tuple[tuple, Row]] = []
-    dated: list[tuple[tuple, Row]] = []
+def undated_groups(
+    todos: list[Todo], family: Family, projects: list[Project] | None = None
+) -> list[Group]:
+    """The open todos without a day or a week, for the lists under the weeks: the ones
+    without a project first («Без дати», the loose ends the bot nudges about), then a group
+    per open project in the projects' order, empty ones too. Within a group the order they
+    come in: `open_todos()` gives the hand-set one."""
     projects = projects or []
-    names = {p.id: p.name for p in projects}
-    groups: dict[int | None, list[Row]] = {}  # project id -> its undated rows, in order
-    t = TodoLists()
-
-    for td in todos:
-        if not td.is_open:
-            continue
-        who = family.display_name(td.owner) if td.owner else ""
-        if not td.due:
-            groups.setdefault(td.project_id, []).append(Row("todo", td.id, td.text, who=who))
-            continue
-        due = date.fromisoformat(td.due)
-        late = due < today
-        row = Row(
-            "todo",
-            td.id,
-            td.text,
-            note=f"{due:%d.%m}" if late else due_note(due, today),
-            who=who,
-            project=names.get(td.project_id, "") if td.project_id is not None else "",
-        )
-        (overdue if late else dated).append(((due, td.id), row))
-
-    t.overdue = [row for _, row in sorted(overdue, key=lambda pair: pair[0])]
-    t.dated = [row for _, row in sorted(dated, key=lambda pair: pair[0])]
+    groups: dict[int | None, list[Row]] = {}  # project id -> its rows, in order
+    for t in todos:
+        if t.is_open and not t.due and not t.week:
+            who = family.display_name(t.owner) if t.owner else ""
+            groups.setdefault(t.project_id, []).append(Row("todo", t.id, t.text, who=who))
     # A todo of a closed project would have been detached; one of an unknown project (never
     # the case) falls in with the ones without.
     by_project = [Group(p.name, groups.pop(p.id, []), p.id) for p in projects]
-    rest = [row for pid, rows in groups.items() for row in rows]
-    t.undated = [Group("", rest), *by_project]  # the loose ends first, then the projects
-    return t
+    rest = [row for rows in groups.values() for row in rows]
+    return [Group("", rest), *by_project]
 
 
 def reminder_rows(reminders: list[Reminder], now: datetime, family: Family) -> list[Row]:
     """The pending reminders for «Нагадування» on the web home, its own block under the
-    calendar (2026-09-18; they sat among the dated todos for a day and mixed badly with
+    weeks (2026-09-18; they sat among the dated todos for a day and mixed badly with
     them): «⏰» rows nobody taps, by time, the note 'завтра 19:30 · щодня'; the repeating
     ones at the end, since they come round again whatever anyone does. One whose time
     passed but is still pending (about to be sent) counts as today's."""
@@ -716,6 +726,7 @@ def build_context(
     projects = db.open_projects()
     project_names = {p.id: p.name for p in projects}
     buckets = bucket_todos(open_todos, now)
+    this_week = week_start(now.date())
     # The inventory can be long; the LLM sees only what just changed and what the message
     # is about. The rest is on the web.
     recent_items = db.items_changed_since(since_iso)
@@ -738,7 +749,11 @@ def build_context(
     parts = [
         section(
             "Зараз",
-            [f"{now.strftime('%Y-%m-%d %H:%M')} ({tz.key}), {WEEKDAYS_UK[now.weekday()]}"],
+            [
+                f"{now.strftime('%Y-%m-%d %H:%M')} ({tz.key}), {WEEKDAYS_UK[now.weekday()]}",
+                f"Цей тиждень (week: this): {fmt_week(this_week)}, з понеділка по неділю;"
+                f" наступний (week: next): {fmt_week(this_week + WEEK)}",
+            ],
         ),
         section("Сім'я (пишуть боту; решта людей — у фактах)", [family.describe()]),
         section(
@@ -751,10 +766,6 @@ def build_context(
             " на явне прохання, повертай повний текст)",
             notes_context_lines(db.current_notes(), family, tz),
             empty="поки порожньо",
-        ),
-        section(
-            "Списки на сьогодні (today: дошка кожного, змінюється лише на явне прохання)",
-            board_context_lines(db.current_today_lists(), family, tz),
         ),
         section(
             f"Події (минулі за {PAST_EVENT_DAYS} днів і всі майбутні)",
@@ -771,10 +782,15 @@ def build_context(
             empty="поки жодного",
         ),
         section(
-            "Відкриті задачі (todos, усі; без дати — у порядку з вебу)",
-            [f"- {todo_line(t, family, projects=project_names)}" for t in open_todos],
+            "Відкриті задачі (todos, усі: з днем, з тижнем чи без дати; у порядку з вебу)",
+            [
+                f"- {todo_line(t, family, projects=project_names, today=now.date())}"
+                for t in open_todos
+            ],
         ),
-        section("Сьогодні / прострочено", [render_digest(agenda, buckets, family, tz)]),
+        section(
+            "Сьогодні / прострочено / цей тиждень", [render_digest(agenda, buckets, family, now)]
+        ),
         section(
             "Мрії (dreams: спільний список, хто додав; здійснені лише на вебі)",
             [f"- {dream_line(d, family)}" for d in db.open_dreams()],

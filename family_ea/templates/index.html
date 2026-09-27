@@ -1,32 +1,38 @@
 {% extends "base.html" %}
 {% block title %}Задачі{% endblock %}
 {% block body %}
-{# the board of each member, the viewer's own first: free text as kept in the chat #}
-{% for title, boards in [("На сьогодні", today)] %}
-<h2>{{ title }}</h2>
-<ul class="rows today">
-  {% for b in boards %}
-  <li>
-    <span class="meta">{{ b.name }}{% if b.stale %} · оновлено {{ b.stale }}{% endif %}</span>
-    {% if b.text %}<div class="text">{{ b.text }}</div>{% else %}<div class="empty">порожньо</div>{% endif %}
-  </li>
-  {% endfor %}
-</ul>
-{% endfor %}
-{# the calendar: every day with a planned event, today always, like
-   the phone's calendar widget: a small heading per day, the time on the left next to the
-   text. Three days with events in full; what comes after is one line («далі: 07.10 Стрижка · …») that
-   unfolds into the same days. Read-only: events are made and moved in the chat #}
-<h2>Календар</h2>
+{# the weeks, Monday to Sunday: this one, and the next when it holds anything. A small
+   heading per day from today on (today always), under it the events with the time on the
+   left and the todos of that day with their «☐» there; then the todos planned for the
+   week without a day. This week starts with what is late. What comes after the two weeks
+   is one line («далі: 07.10 Стрижка · …») that unfolds into the same days. What goes
+   where is said in the chat; the page marks a todo done and edits its text #}
+{% for w in plan.weeks %}
+<h2>{{ w.title }} <span class="meta">· {{ w.span }}</span></h2>
 <div class="agenda">
-{% with days = calendar.days %}{% include "_days.html" %}{% endwith %}
-{% if calendar.later %}
-<details>
-  <summary>далі: {{ calendar.later_line }}</summary>
-  {% with days = calendar.later %}{% include "_days.html" %}{% endwith %}
-</details>
+{% if w.overdue %}
+<h3 class="overdue">Прострочено</h3>
+<ul class="overdue">
+  {% for r in w.overdue %}{% include "_slot.html" %}{% endfor %}
+</ul>
+{% endif %}
+{% with days = w.days %}{% include "_days.html" %}{% endwith %}
+{% if w.rows %}
+<h3>Протягом тижня</h3>
+<ul>
+  {% for r in w.rows %}{% include "_slot.html" %}{% endfor %}
+</ul>
 {% endif %}
 </div>
+{% endfor %}
+{% if plan.later %}
+<div class="agenda">
+<details>
+  <summary>далі: {{ plan.later_line }}</summary>
+  {% with days = plan.later %}{% include "_days.html" %}{% endwith %}
+</details>
+</div>
+{% endif %}
 {# the pending reminders: «⏰» rows nobody taps, by time, the repeating ones last.
    Read-only: a reminder is moved or cancelled in the chat #}
 {% if reminders %}
@@ -35,28 +41,15 @@
   {% for r in reminders %}{% include "_row.html" %}{% endfor %}
 </ul>
 {% endif %}
-{# the todos: past their day, with one («Задачі»), without one (drag «⋮⋮» to order these) #}
-{% if todos.overdue %}
-<h2 class="overdue">Прострочено</h2>
-<ul class="rows overdue">
-  {% for r in todos.overdue %}{% include "_row.html" %}{% endfor %}
-</ul>
-{% endif %}
-{% if todos.dated %}
-<h2>Задачі</h2>
-<ul class="rows">
-  {% for r in todos.dated %}{% include "_row.html" %}{% endfor %}
-</ul>
-{% endif %}
-{# the undated todos: «Без дати» first, the default project (the ones without one, the
+{# the todos without a day or a week: «Без дати» first, the default project (the ones without one, the
    loose ends the bot nudges about), then a section per project (an h2 like the rest,
    dragged by the «⋮⋮» next to the name when there is more than one project). A row is
    dragged by its «⋮⋮» within its list or into another one, which moves the todo into that
    project #}
-{% set projects = todos.undated | length > 1 %}
-{% set sortable = projects or todos.undated[0].rows | length > 1 %}
-{% set movable = todos.undated | length > 2 %}
-{% for g in todos.undated %}
+{% set projects = undated | length > 1 %}
+{% set sortable = projects or undated[0].rows | length > 1 %}
+{% set movable = undated | length > 2 %}
+{% for g in undated %}
 {% if g.name %}
 <section class="project" data-project="{{ g.project_id }}">
 <h2>{{ g.name }}{% if movable %}<span class="grip" title="Потягни, щоб переставити проєкт">⋮⋮</span>{% endif %}</h2>
@@ -112,7 +105,7 @@
     const undo = document.createElement("span");
     undo.className = "meta undo";
     undo.textContent = "· ще раз, щоб повернути";
-    mark.parentElement.append(" ", undo);
+    li.querySelector(".text").parentElement.append(" ", undo);
     pending.set(li, setTimeout(() => post(li), DELAY));
   });
   const flush = () => {
@@ -136,7 +129,7 @@
     const li = button.closest("li");
     if (li.classList.contains("closed")) return;
     const span = li.querySelector(".text");
-    const cell = span.parentElement; // mark, text, calendar link, meta
+    const cell = span.parentElement; // the text and its meta; in a list the mark too
     const old = span.textContent;
     const box = document.createElement("textarea");
     box.className = "editor";

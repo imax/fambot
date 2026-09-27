@@ -1,7 +1,11 @@
+from datetime import date
+
+import pytest
+
 from family_ea.db import Database
 from family_ea.family import Family
 from family_ea.llm import LlmResult
-from family_ea.ops import apply_ops, failure_note, normalize_datetime
+from family_ea.ops import apply_ops, failure_note, normalize_datetime, normalize_week
 from tests.conftest import KYIV
 
 SPEC_EXAMPLE = {
@@ -35,32 +39,79 @@ def test_schema_accepts_spec_example() -> None:
     assert LlmResult.model_validate({"reply": "Ок."}).dreams == []
 
 
-def test_today_op_replaces_a_board(db: Database, family: Family) -> None:
+def test_normalize_week() -> None:
+    thursday = date(2026, 9, 10)  # the week: 07.09–13.09
+    assert normalize_week("this", thursday) == "2026-09-07"
+    assert normalize_week(" Next ", thursday) == "2026-09-14"
+    assert normalize_week("2026-09-13", thursday) == "2026-09-07"  # Sunday ends the week
+    assert normalize_week("2026-09-14", thursday) == "2026-09-14"  # Monday starts the next
+    assert normalize_week("2026-10-01", thursday) == "2026-09-28"  # any day of a later one
+    assert normalize_week("2026-09-06", thursday) is None  # over: nothing is planned back
+    assert normalize_week("колись", thursday) is None
+    sunday = date(2026, 9, 13)
+    assert normalize_week("this", sunday) == "2026-09-07"
+    assert normalize_week("next", sunday) == "2026-09-14"  # the week that starts tomorrow
+
+
+def test_a_todo_has_a_day_or_a_week(
+    db: Database, family: Family, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """«Плани на тиждень: …» files todos with the week; a day given later takes the week
+    away and the other way round; «зніми з тижня» leaves a todo without either."""
+    monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-10T09:00:00Z")  # Thursday
     mid = db.insert_message("oleh", "oleh", "...")
+    car = db.create_project("Авто", created_by="oleh")
 
-    def run(payload: list[dict]) -> list:
-        result = LlmResult.model_validate({"reply": "Ок.", "today": payload})
-        return apply_ops(db, result, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+    def apply(ops: list[dict]) -> list:
+        r = LlmResult.model_validate({"reply": "", "todos": ops})
+        return apply_ops(db, r, author_id="oleh", message_id=mid, family=family, tz=KYIV)
 
-    applied = run(
+    def when(tid: int) -> tuple[str | None, str | None]:
+        t = db.get_todo(tid)
+        assert t
+        return t.due, t.week
+
+    applied = apply(
         [
-            {"text": " сходити на НП, планка "},
-            {"member": "anna", "text": "вода"},
-            {"member": "nobody", "text": "x"},
+            {"op": "create", "text": "Пані Марія зустріч", "owner": "oleh", "week": "this"},
+            {"op": "create", "text": "Газовик пінг", "week": "next"},
+            {"op": "create", "text": "Декларація", "due": "2026-09-12", "week": "this"},
+            {"op": "create", "text": "Колись", "week": "минулого року"},
+            {"op": "create", "text": "Масло у Volvo", "project": "Авто"},
         ]
     )
-    assert [(a.kind, a.op, a.ok, a.note) for a in applied] == [
-        ("today", "set", True, ""),
-        ("today", "set", True, "for anna"),
-        ("today", "set", False, "unknown member 'nobody'"),
+    assert [(a.ok, a.note) for a in applied] == [
+        (True, ""),
+        (True, ""),
+        (True, ""),
+        (True, "bad week 'минулого року' dropped"),
+        (True, ""),
     ]
-    boards = db.current_today_lists()
-    assert boards["oleh"].text == "сходити на НП, планка" and boards["oleh"].created_by == "oleh"
-    assert boards["anna"].text == "вода" and boards["anna"].created_by == "oleh"
+    assert [when(i) for i in (1, 2, 3, 4)] == [
+        (None, "2026-09-07"),
+        (None, "2026-09-14"),
+        ("2026-09-12", None),  # a day is the finer «when»: it is in its week by it
+        (None, None),
+    ]
+    # Planned for a week, a todo is no loose end: no nudge; the one without a «when» has it.
+    assert [db.get_todo(i).remind_on for i in (1, 2, 3, 4)] == [None, None, None, "2026-09-11"]  # type: ignore[union-attr]
 
-    applied = run([{"text": "сходити на НП, планка"}, {"member": "anna", "text": ""}])
-    assert [(a.ok, a.note) for a in applied] == [(False, "unchanged"), (True, "for anna")]
-    assert db.current_today_lists()["anna"].text == ""  # cleared
+    # A todo of a project taken into the week stays in its project.
+    (a,) = apply([{"op": "update", "id": 5, "week": "this"}])
+    taken = db.get_todo(5)
+    assert a.ok and taken and (taken.week, taken.project_id) == ("2026-09-07", car)
+
+    (a,) = apply([{"op": "update", "id": 1, "due": "2026-09-11"}])  # «у п'ятницю»
+    assert a.ok and when(1) == ("2026-09-11", None)
+    (a,) = apply([{"op": "update", "id": 1, "week": "next"}])  # «перенеси на наступний»
+    assert a.ok and when(1) == (None, "2026-09-14")
+    (a,) = apply([{"op": "update", "id": 1, "week": "-"}])  # «зніми з тижня»
+    assert a.ok and when(1) == (None, None)
+    (a,) = apply([{"op": "update", "id": 3, "week": "-"}])  # no week to take: the day stays
+    assert a.ok and when(3) == ("2026-09-12", None)
+    (bad,) = apply([{"op": "update", "id": 2, "week": "2026-08-01"}])
+    assert bad.ok is False and "bad week" in bad.note  # nothing left to update
+    assert when(2) == (None, "2026-09-14")
 
 
 def test_normalize_datetime() -> None:
@@ -351,7 +402,7 @@ def test_failure_note_names_what_did_not_go_through(db: Database, family: Family
             "items": [{"op": "remove", "id": 77}],
             "events": [{"op": "create", "text": "Без дати"}],
             "todos": [{"op": "close", "id": 5}],
-            "today": [{"text": ""}],  # the board is already empty: «unchanged», not a failure
+            "notes": [{"text": ""}],  # the page is already empty: «unchanged», not a failure
         }
     )
     applied = apply_ops(db, r, author_id="oleh", message_id=mid, family=family, tz=KYIV)

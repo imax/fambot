@@ -10,6 +10,7 @@ from family_ea.context import (
     digest_text,
     event_line,
     fmt_event_when,
+    render_digest,
 )
 from family_ea.db import Database, Event, Member
 from family_ea.family import Family
@@ -109,12 +110,12 @@ def test_digest_with_events(family: Family) -> None:
         [_c(1, text="Забрати форму", owner="anna", due="2026-09-10")],
         NOW,
     )
-    assert digest_text(a, b, family, KYIV) == (
+    assert digest_text(a, b, family, NOW) == (
         "Сьогодні:\n- 10:00–11:00 Сніданок з командою (Олег)\n"
         "Завтра:\n- 15:30 Стоматолог (Анна)\n"
         "Задачі на сьогодні:\n- Забрати форму (Анна, 10.09)"
     )
-    assert digest_text(Agenda(), bucket_todos([], NOW), family, KYIV) is None
+    assert digest_text(Agenda(), bucket_todos([], NOW), family, NOW) is None
 
 
 def test_event_ops(db: Database, family: Family) -> None:
@@ -371,3 +372,45 @@ async def test_a_todo_done_is_told_to_the_other_member(db: Database, family: Fam
         await announce_done(db, family, oleh, [Applied("todo", "close:dropped", 3, True)], send)
         == []
     )
+
+
+def test_digest_ends_with_the_rest_of_the_week(family: Family) -> None:
+    now = datetime(2026, 9, 10, 8, 30, tzinfo=KYIV)  # Thursday; the week ends on 13.09
+    events = [
+        _e(1, text="Зустріч", starts_at="2026-09-10T12:00:00Z"),  # today 15:00
+        _e(2, text="Гості", date_from="2026-09-11"),  # tomorrow
+        _e(3, text="Стрижка", who="oleh", starts_at="2026-09-12T12:30:00Z"),  # Saturday
+        _e(4, text="Буріння", date_from="2026-09-13"),  # Sunday, the last day of the week
+        _e(5, text="Табір", date_from="2026-09-14"),  # Monday: the next week, not here
+    ]
+    todos = [
+        _c(1, text="Пошта", due="2026-09-10"),
+        _c(2, text="Декларація", owner="anna", due="2026-09-12"),  # a day later this week
+        _c(3, text="Віза", due="2026-09-15"),  # a day of the next week
+        _c(4, text="Газовик пінг", owner="oleh", week="2026-09-07"),
+        _c(5, text="Вікна", week="2026-08-31"),  # last week's, not done
+        _c(6, text="Підвал", week="2026-09-14"),  # planned for the next week
+        _c(7, text="Без дати"),
+    ]
+    a, b = build_agenda(events, now), bucket_todos(todos, now)
+    assert digest_text(a, b, family, now) == (
+        "Сьогодні:\n- 15:00 Зустріч\n"
+        "Завтра:\n- Гості\n"
+        "Задачі на сьогодні:\n- Пошта (10.09)\n"
+        "Цього тижня:\n"
+        "- сб 12.09 15:30 Стрижка (Олег)\n"
+        "- нд 13.09 Буріння\n"
+        "- Декларація (Анна, 12.09)\n"
+        "- Газовик пінг (Олег)\n"
+        "- Вікна (з минулого тижня)"
+    )
+    for_llm = render_digest(a, b, family, now)
+    assert "- [подія #3] сб 12.09 15:30 Стрижка (Олег)\n" in for_llm
+    assert "- [#4] Газовик пінг (Олег)\n- [#5] Вікна (з минулого тижня)\n" in for_llm
+    assert for_llm.endswith(
+        "Наступні тижні:\n- [#6] Підвал (наступний тиждень)\nБез дати:\n- [#7] Без дати"
+    )
+
+    # The plan alone is worth a digest: it is what the week is for.
+    only_plan = bucket_todos([todos[3]], now)
+    assert digest_text(Agenda(), only_plan, family, now) == "Цього тижня:\n- Газовик пінг (Олег)"

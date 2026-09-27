@@ -308,11 +308,14 @@ def test_login_rejects_bad_links(db: Database, family: Family) -> None:
 
 
 class FakeLlm:
-    """Every message: «Записав» and one today op."""
+    """Every message: «Записав» and one todo for this week."""
 
     async def run(self, context: str, image=None) -> LlmCall:
         result = LlmResult.model_validate(
-            {"reply": "Записав", "today": [{"text": "Купити подарунок мамі."}]}
+            {
+                "reply": "Записав",
+                "todos": [{"op": "create", "text": "Подарунок мамі", "week": "this"}],
+            }
         )
         return LlmCall(result, "fake-model", {"input_tokens": 3, "output_tokens": 1}, "req")
 
@@ -341,16 +344,16 @@ def test_web_chat_only_on_the_laptop(db: Database, family: Family) -> None:
 
     r = client.post(
         "/chat",
-        data={"text": "на сьогодні: подарунок мамі"},
+        data={"text": "на цей тиждень: подарунок мамі"},
         headers=_auth(),
         follow_redirects=False,
     )
     assert r.status_code == 303 and r.headers["location"] == "/chat"
-    assert db.current_today_lists()["oleh"].text == "Купити подарунок мамі."
+    assert [(t.text, bool(t.week)) for t in db.open_todos()] == [("Подарунок мамі", True)]
     page = html.unescape(client.get("/chat", headers=_auth()).text)
-    assert page.index("на сьогодні: подарунок мамі") < page.index("Записав")
-    assert "today set: text='Купити подарунок мамі.'" in page
-    assert "[ok] today set #1" in page
+    assert page.index("на цей тиждень: подарунок мамі") < page.index("Записав")
+    assert "todo create: text='Подарунок мамі', week='this'" in page
+    assert "[ok] todo create #1" in page
     assert "подарунок" not in client.get("/chat", headers=_auth("anna")).text  # Anna's chat
 
     # A photo goes with the message, as from Telegram; an empty form sends nothing.
@@ -410,7 +413,7 @@ def test_web_send_voice(db: Database, family: Family) -> None:
     assert r.status_code == 200
     assert r.json() == {"text": "купити хліб", "reply": "Записав"}
     assert heard.calls == [(b"opus", "voice.webm", "audio/webm")]
-    assert db.current_today_lists()["oleh"].text == "Купити подарунок мамі."
+    assert [t.text for t in db.open_todos()] == ["Подарунок мамі"]
     mine = [m for m in db.list_messages(10) if m.chat_with == "oleh"]
     assert [(m.user_id, m.raw_text, m.is_voice, m.tg_message_id) for m in reversed(mine)] == [
         ("oleh", "купити хліб", True, None),

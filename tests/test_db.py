@@ -179,18 +179,6 @@ def test_commitments_become_todos(tmp_path: Path) -> None:
     again.close()
 
 
-def test_today_lists_latest_per_member(db: Database) -> None:
-    assert db.current_today_lists() == {}
-    db.save_today_list("oleh", "планка", "oleh")
-    db.save_today_list("anna", "вода", "anna")
-    db.save_today_list("oleh", "планка, авто", "anna")  # the partner edited it
-    boards = db.current_today_lists()
-    assert {m: (b.text, b.created_by) for m, b in boards.items()} == {
-        "oleh": ("планка, авто", "anna"),
-        "anna": ("вода", "anna"),
-    }
-
-
 def test_todo_lifecycle(db: Database) -> None:
     mid = db.insert_message("anna", "anna", "завтра стоматолог")
     cid = db.create_todo(

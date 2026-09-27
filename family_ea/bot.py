@@ -30,15 +30,7 @@ from telegram.ext import (
 
 from .auth import LINK_TTL, sign
 from .config import Settings
-from .context import (
-    board_blocks,
-    bucket_todos,
-    build_agenda,
-    digest_text,
-    event_line,
-    parse_iso,
-    today_lines,
-)
+from .context import bucket_todos, build_agenda, digest_text, event_line, parse_iso
 from .db import REMINDER_REPEATS, Database, Event, Member, Reminder, Todo
 from .family import Family
 from .llm import Image
@@ -58,7 +50,7 @@ REMINDER_PATTERN = r"^reminder:tomorrow:\d+$"  # the one button under a one-off 
 TAP_PATTERN = r"^(todo:(done|tomorrow)|reminder:tomorrow):\d+$"  # every button the bot answers
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)  # login links in text: no preview fetch
 COMMANDS = [
-    BotCommand("today", "на сьогодні: списки, події, задачі, прострочене"),
+    BotCommand("today", "на сьогодні: події, задачі, прострочене, план тижня"),
     BotCommand("web", "відкрити веб-сторінку сім'ї"),
     BotCommand("facts", "факти про сім'ю, які бачить асистент"),
     BotCommand("help", "що вміє бот і його команди"),
@@ -79,12 +71,14 @@ def help_text(settings: Settings) -> str:
         "Пиши або наговорюй: що треба зробити, що коли буде, де що лежить. "
         "Фото теж: підпиши, що з ним зробити («це лежить у сейфі», «зроби з цього задачу»), "
         "і я перепишу з нього все потрібне; сам знімок лишиться на вебі під річчю. "
-        "«На сьогодні: пошта, планка, авто» веде твій список на день; додавай і викреслюй "
-        "словами, список партнера теж видно. «Мрію пройти Каміно» додає до спільного списку "
+        "«Плани на тиждень: …», «на цей тиждень», «на наступний» кладуть задачі в план "
+        "тижня, один на всіх; «на сьогодні: пошта, планка, авто» — задачі на сьогодні. "
+        "«Мрію пройти Каміно» додає до спільного списку "
         "мрій на вебі. «Запам'ятай …» або фото розкладу з підписом «в нотатки» лягає на "
         "сторінку «Нотатки», одну довідку на вебі, яку я сам веду і переписую. Питай — "
         f"відповім з того, що знаю. Щоранку о "
-        f"{when} надсилаю дайджест, а нагадую, коли попросиш. Про задачу без дати й проєкту "
+        f"{when} надсилаю дайджест: сьогодні, завтра і що лишилось на тиждень; нагадую, "
+        f"коли попросиш. Про задачу без дня, тижня й проєкту "
         f"сам нагадаю наступного дня о {nudge}, одну на день, з кнопками «Зроблено» і "
         f"«Завтра»; під разовим нагадуванням є «Нагадати завтра». Коли хтось додає подію в "
         f"календар або закриває задачу, пишу про це іншим."
@@ -432,25 +426,22 @@ def build_bot(
         sent = await update.message.reply_text(_clip(outcome.reply))
         db.set_tg_message_id(outcome.bot_message_id, sent.message_id)
 
-    def digest(now: datetime, viewer: Member) -> str | None:
-        """The digest for one member, their own board first; None when there is nothing to say."""
+    def digest(now: datetime) -> str | None:
+        """The digest, the same for every member; None when there is nothing to say."""
         agenda = build_agenda(db.planned_events(), now)
         buckets = bucket_todos(db.open_todos(), now)
-        boards = board_blocks(db.current_today_lists(), family, viewer.id, now)
-        head = today_lines(boards, viewer.id)
-        text = digest_text(agenda, buckets, family, settings.tz, today=head)
+        text = digest_text(agenda, buckets, family, now)
         return _clip(text) if text else None
 
     async def send_digest(context: ContextTypes.DEFAULT_TYPE) -> None:
         """The morning job: each member's digest with «Відкрити» under it; silence when there
         is nothing to say."""
-        now = datetime.now(settings.tz)
+        text = digest(datetime.now(settings.tz))
+        if text is None:
+            log.info("digest: nothing to say today")
+            return
         for member in family.members:
             if member.telegram_id is None:
-                continue
-            text = digest(now, member)
-            if text is None:
-                log.info("digest: nothing to say to %s today", member.id)
                 continue
             keyboard = open_keyboard(login_link(settings, member))
             try:
@@ -513,7 +504,7 @@ def build_bot(
         person = member_of(update)
         assert update.message and person
         keyboard = open_keyboard(login_link(settings, person))
-        text = digest(datetime.now(settings.tz), person)
+        text = digest(datetime.now(settings.tz))
         if text is None:
             await update.message.reply_text("Нічого не висить.", reply_markup=keyboard)
             return

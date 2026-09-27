@@ -1,5 +1,5 @@
 """SQLite storage: members, messages, items, events, todos, projects, dreams, reminders,
-facts, notes, today lists.
+facts, notes.
 
 One connection, one process, one writer. Original messages are never mutated; items are
 removed (gone) and every change to one writes an item_history row; todos and dreams are
@@ -45,8 +45,10 @@ CREATE TABLE IF NOT EXISTS todos (
   source_message_id INTEGER NOT NULL,
   closed_at TEXT,
   project_id INTEGER,               -- the project it is grouped under (projects.id); NULL = none
-  remind_on TEXT                    -- ISO date: the day the bot nudges about it at noon (see
+  remind_on TEXT,                   -- ISO date: the day the bot nudges about it at noon (see
                                     --   bot.deliver_due_nudges); NULL = no nudge
+  week TEXT                         -- ISO date of a Monday: the week it is planned for, when it
+                                    --   has no day (`due`); never both; NULL = not planned
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -149,14 +151,6 @@ CREATE TABLE IF NOT EXISTS notes (
   created_by TEXT NOT NULL          -- the family member whose message changed it
 );
 
-CREATE TABLE IF NOT EXISTS today_lists (
-  id INTEGER PRIMARY KEY,           -- every change is a new row; the latest per member is current
-  member TEXT NOT NULL,             -- whose «на сьогодні» board
-  text TEXT NOT NULL,               -- free text, as the person keeps it; '' = cleared
-  created_at TEXT NOT NULL,
-  created_by TEXT NOT NULL          -- the member who asked for the change
-);
-
 CREATE TABLE IF NOT EXISTS members (
   id TEXT PRIMARY KEY,              -- latin slug (oleh); what the LLM uses as owner
   name TEXT NOT NULL,
@@ -230,6 +224,7 @@ class Todo:
     position: int | None = None  # set by dragging on the web; meaningful for undated ones
     project_id: int | None = None  # the project it is grouped under; None = none
     remind_on: str | None = None  # ISO date of the nudge to come; None = none
+    week: str | None = None  # ISO date of the Monday of the week it is planned for; None = none
 
     @property
     def is_open(self) -> bool:
@@ -338,19 +333,6 @@ class Notes:
 
 
 @dataclass(frozen=True)
-class Board:
-    """One member's free-text board («на сьогодні»), kept through the bot, a new row per
-    change. (A second board, «Не забути» in `remember_lists`, lived 2026-09-14 to
-    2026-09-16; the production table stays, untouched and unread, like `journal`.)"""
-
-    id: int
-    member: str
-    text: str
-    created_at: str
-    created_by: str
-
-
-@dataclass(frozen=True)
 class Member:
     id: str
     name: str
@@ -434,7 +416,7 @@ def _reminder(row: sqlite3.Row) -> Reminder:
 
 ITEM_UPDATABLE = ("name", "owner", "place", "spot", "note")
 ITEM_LABELS = {"name": "назва", "owner": "власник", "note": "примітка"}  # history detail
-TODO_UPDATABLE = ("text", "owner", "due", "project_id", "remind_on")
+TODO_UPDATABLE = ("text", "owner", "due", "project_id", "remind_on", "week")
 EVENT_UPDATABLE = ("text", "who", "starts_at", "until", "date_from", "date_to")
 REMINDER_UPDATABLE = ("text", "who", "at", "repeat")
 REMINDER_REPEATS = ("daily", "weekly")
@@ -460,7 +442,9 @@ class Database:
             r[0] for r in self.conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         # The notes went on 2026-09-12: a `journal` table (with its FTS index and triggers)
-        # from before that stays in the file untouched, no longer created or read.
+        # from before that stays in the file untouched, no longer created or read. So do
+        # the boards: `remember_lists` (2026-09-14 to 2026-09-16) and `today_lists`
+        # (2026-09-11 to 2026-09-27, when «на сьогодні» became a todo with today's day).
         if "commitments" in tables:
             # 2026-09-12: commitments became todos. A todo has a deadline day, not a time or
             # a window (a thing with a time of day is an event): due_at -> its day in Kyiv,
@@ -508,6 +492,10 @@ class Database:
         if "remind_on" not in columns:
             # 2026-09-16: a nudge about a todo without a date or a project, the day after.
             self.conn.execute("ALTER TABLE todos ADD COLUMN remind_on TEXT")
+            self.conn.commit()
+        if "week" not in columns:
+            # 2026-09-27: a todo is planned for a week («плани на тиждень»).
+            self.conn.execute("ALTER TABLE todos ADD COLUMN week TEXT")
             self.conn.commit()
         columns = {r[1] for r in self.conn.execute("PRAGMA table_info(reminders)")}
         if "repeat" not in columns:
@@ -853,30 +841,6 @@ class Database:
     def notes_versions(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
 
-    # --- boards: today lists -------------------------------------------------
-
-    def current_today_lists(self) -> dict[str, Board]:
-        """The latest «на сьогодні» board of every member who ever had one, by member id."""
-        return self._current_boards("today_lists")
-
-    def save_today_list(self, member: str, text: str, created_by: str) -> int:
-        """Store a new version of `member`'s «на сьогодні» board. Returns its id."""
-        return self._save_board("today_lists", member, text, created_by)
-
-    def _current_boards(self, table: str) -> dict[str, Board]:
-        rows = self.conn.execute(
-            f"SELECT * FROM {table} WHERE id IN (SELECT max(id) FROM {table} GROUP BY member)"
-        ).fetchall()
-        return {r["member"]: Board(**dict(r)) for r in rows}
-
-    def _save_board(self, table: str, member: str, text: str, created_by: str) -> int:
-        cur = self.conn.execute(
-            f"INSERT INTO {table} (member, text, created_at, created_by) VALUES (?, ?, ?, ?)",
-            (member, text, utc_now_iso(), created_by),
-        )
-        self.conn.commit()
-        return int(cur.lastrowid or 0)
-
     # --- members ------------------------------------------------------------
 
     def list_members(self) -> list[Member]:
@@ -1010,10 +974,12 @@ class Database:
         due: str | None = None,
         project_id: int | None = None,
         remind_on: str | None = None,
+        week: str | None = None,
     ) -> int:
         cur = self.conn.execute(
             "INSERT INTO todos (text, owner, status, due, created_by, created_at,"
-            " source_message_id, project_id, remind_on) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?)",
+            " source_message_id, project_id, remind_on, week)"
+            " VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)",
             (
                 text,
                 owner,
@@ -1023,14 +989,15 @@ class Database:
                 source_message_id,
                 project_id,
                 remind_on,
+                week,
             ),
         )
         self.conn.commit()
         return int(cur.lastrowid or 0)
 
     def update_todo(self, todo_id: int, **fields: str | int | None) -> bool:
-        """Update text/owner/due/project_id/remind_on of an open todo. Returns False if not
-        open."""
+        """Update text/owner/due/project_id/remind_on/week of an open todo. Returns False if
+        not open."""
         fields = {k: v for k, v in fields.items() if k in TODO_UPDATABLE}
         if not fields:
             return False

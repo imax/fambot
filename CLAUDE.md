@@ -1,7 +1,7 @@
 # Family EA
 
 Private family assistant in Telegram: two adults throw text and voice at the bot, it keeps
-one shared state (items, events, todos in projects, dreams, reminders, a board per member, one notes page),
+one shared state (items, events, todos by day, week and project, dreams, reminders, one notes page),
 answers questions from it,
 pushes a morning digest and sends reminders at the asked time. Deployed to Fly.io, SQLite on a volume, in real use since 2026-09-10.
 
@@ -47,15 +47,16 @@ family_ea/
                 `session` cookie; `pull` signs a `backup` bearer. Nothing is stored.
   family.py     Family over the members table (+ ADMIN_USER_ID); slugify() makes ids from names
   db.py         SQLite schema + all queries; dataclasses Message/Attachment/Item/Event/
-                Todo/Project/Dream/Reminder/Notes/Board; item_history is written by the item methods only;
+                Todo/Project/Dream/Reminder/Notes; item_history is written by the item methods only;
                 _migrate() for what CREATE IF NOT EXISTS cannot express;
                 backup_to() is the online backup behind GET /backup.db
   context.py    deterministic LLM context, event agenda (today/tomorrow/later/recent),
-                todo buckets (today/overdue/open/later), the project lines, the boards (blocks for the
-                web and the digest head), the dream lines, the notes page for the LLM,
-                the digest text, the web home
-                (calendar days of events; the pending reminders; overdue todos; the dated
-                ones; the undated ones in a group per project), the search stems
+                todo buckets (today/overdue/week/ahead/open/later), the weeks (`week_start`,
+                `week_note`), the project lines, the dream lines, the notes page for the
+                LLM, the digest text, the web home (`build_plan`: this week and the next,
+                events and todos by day, the week's todos, what is late, the tail under
+                «далі»; the pending reminders; `undated_groups`: the todos without a day
+                or a week in a group per project), the search stems
   llm.py        pydantic output schema, system prompt, the one messages.parse() call
   ops.py        apply LLM ops to db, with validation and an `applied` log
   pipeline.py   store (message, then its photo as an attachment) -> context -> LLM -> ops -> reply;
@@ -72,9 +73,9 @@ family_ea/
   bot.py        python-telegram-bot handlers (/start /help /today /debug /facts /web, text,
                 voice, photo), the 08:30 digest job, the per-minute reminder job, «Відкрити» (a
                 login link) under the digest, /today and /web
-  web.py        FastAPI + Jinja: GET /login?t= (the bot's link; sets the cookie), GET / (the
-                boards, the calendar of events, the pending reminders, the todos, the
-                last done ones; ?q= searches), GET /items (Речі:
+  web.py        FastAPI + Jinja: GET /login?t= (the bot's link; sets the cookie), GET / (this
+                week and the next, the pending reminders, the todos without a day or a
+                week, the last done ones; ?q= searches), GET /items (Речі:
                 places, recent; ?place= ?owner= list), GET /items/:id (photos, history),
                 GET /dreams (Мрії: open ones, then fulfilled; read-only), GET /notes
                 (Нотатки: the LLM's Markdown rendered, its source photos; read-only),
@@ -97,7 +98,7 @@ tests/          deterministic; the LLM is faked, nothing hits the network
 ## Principles
 
 - **LLM understands, code executes.** One structured-output call per incoming message
-  returns `reply` plus item/event/todo/dream/reminder/today/notes ops. Everything else is
+  returns `reply` plus item/event/todo/project/dream/reminder/notes ops. Everything else is
   deterministic code. The reply is written before the ops run, so it can claim what did
   not happen; when an op fails (`ops.failures`: not ok, and not merely «unchanged»), the
   pipeline appends «⚠️ Не вийшло: …» under the reply, and that goes into the stored bot
@@ -109,7 +110,7 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   the old rows: `_migrate()` leaves them alone and nothing creates or reads them; `log`
   still prints the old `journal` ops (`git log -S JournalOp` for that code). Since
   2026-09-13 «Нотатки» is something else: **one reference page for the family** (`notes`
-  table, versioned like the facts), Markdown the LLM rewrites whole, like a today board,
+  table, versioned like the facts), Markdown the LLM rewrites whole,
   and only on an explicit ask («запиши в нотатки», «запам'ятай …», a photo captioned so):
   a school holiday schedule from a screenshot, a camp packing list, a boiler note. The
   page is always in the LLM context (one page, kept short), it answers questions from it,
@@ -118,7 +119,8 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   (`files_of_kind`), read-only. Facts stay the human's page; the notes are the LLM's.
 - **Events and todos are separate tables, not a `kind` column.** An event happens at a
   time or on a day and then passes (never overdue, only cancelled); a todo is done or
-  dropped, can be overdue, and carries at most one day (`due`), never a time of
+  dropped, can be overdue, and carries at most one «when», a day (`due`) or a week
+  (`week`, see below), never a time of
   day: anything with a clock time is an event. (Until 2026-09-12 a todo was a
   «commitment» with `due_at` or a date window, and the LLM filed appointments there; the
   single day field is what keeps the two apart.) Different lifecycles, different data. The
@@ -155,12 +157,35 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   on the web. Which item a message is about, the LLM decides from
   those candidates (an update with an id, or a question in the reply); there is no
   matching code, and an ambiguous message must change nothing.
-- **A board is free text per member, replaced whole.** One, «на сьогодні»
-  (`today_lists`, op `today`, `db.Board`). The LLM returns the new text of one member's
-  board, and only when the person addresses it explicitly («на сьогодні: …», «додай у
-  сьогодні …»); everything else stays a todo or an event. Code never parses a board: it
-  is shown as kept (the web, the viewer's own first; the digest head) and versioned like
-  facts. Nothing resets it; staleness is shown («оновлено вчора»), not acted on. A
+- **The week is the unit of planning** (2026-09-27, after «Плани на тиждень: …» with six
+  terse lines got «не розібрав» twice). A week runs Monday to Sunday. A todo has one
+  «when»: a day (`due`), a week (`todos.week`, the ISO date of its Monday) or nothing; the
+  one given takes the other away (`ops._todo_fields`), and a todo with a day is in its
+  week by that day. The LLM says `week: this | next` (or any date of a later week; code
+  snaps it to the Monday, `ops.normalize_week`; a week that is over is refused); on a
+  Sunday «на тиждень» means the one that starts tomorrow (prompt only). The plan is one
+  list for the family, the owner next to each row. **A week is not a project**: a project
+  is what a todo is about, a week is when; a todo taken into a week keeps its
+  `project_id` and comes back to its project's list when the week is taken off («зніми з
+  тижня», `week: "-"`). A project never ends; a week does, and nothing happens then:
+  what was not done stays in this week's plan, noted «з минулого тижня»
+  (`context.week_note`), until a person closes, moves or takes it off. No job rolls
+  anything over. The web home is the weeks (`context.build_plan`): «Цей тиждень»
+  (what is late, the days from today on with their events and todos, «Протягом тижня»),
+  «Наступний тиждень» when it holds anything, the rest as a line «далі: …»; the separate
+  calendar block and the «Задачі» list of dated todos went into it. Events stay their
+  own table: a time, reminders relative to it, a notice to the others. A todo planned
+  for a week gets no nudge. The web does not set a week yet, the chat does.
+- **The boards are gone.** A board was free text per member, replaced whole: «на сьогодні»
+  (`today_lists`, op `today`, `db.Board`) lived from 2026-09-11 to 2026-09-27 and went
+  when the week came: a list for the day without a «done» was the same plan on a shorter
+  horizon, so «на сьогодні: пошта, планка» is now a todo per item with today's day, its
+  words kept as written. The production table stays, unread, like `journal`. How it
+  worked: the LLM returned the new text of one member's
+  board, and only when the person addressed it explicitly («на сьогодні: …», «додай у
+  сьогодні …»); everything else stayed a todo or an event. Code never parsed a board: it
+  was shown as kept (the web, the viewer's own first; the digest head) and versioned like
+  facts. Nothing reset it; staleness was shown («оновлено вчора»), not acted on. A
   second board, «Не забути» (`remember_lists`, op `remember`), lived from 2026-09-14 to
   2026-09-16 and went when the nudges came: «не забути: …» is a todo without a date,
   which the bot brings up itself. The production table stays, unread, like `journal`.
@@ -200,8 +225,10 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   transcript and the reply and reloads. Voice only: a text box was built the same day
   and dropped before release, typing is what Telegram is for. The reply is never sent
   to Telegram: the exchange is in the database, so the next context has it.
-- **Every push is deterministic and stored.** The morning digest renders each member's
-  board (own first), today's and tomorrow's events, then todos due today and overdue,
+- **Every push is deterministic and stored.** The morning digest renders today's and
+  tomorrow's events, todos due today and overdue, then «Цього тижня»: the week's events
+  after tomorrow, its todos with a day still to come and the ones planned for it without
+  a day (leftovers noted); the same text for everyone,
   never the undated ones (they are on the web), no LLM call, and is silent when empty;
   `/today` is the same digest now. A reminder is text the LLM wrote at request time,
   sent by a per-minute job when `at` comes, to the one member it is for or to everyone.
@@ -214,12 +241,12 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   Kyiv wall-clock time on the next day still ahead (`bot.reminder_tap`, through
   `next_repeat`) and rewrites the message without the button; no «Зроблено», since a sent
   reminder has no state to mark. A repeating one gets no button.
-  A nudge (2026-09-16) is a todo without a day or a project, sent once at `NUDGE_TIME`
+  A nudge (2026-09-16) is a todo without a day, a week or a project, sent once at `NUDGE_TIME`
   (10:00 since the evening of 2026-09-16, 12:30 before) the day after it was filed, to its owner or to everyone, at most one per
   member per day (the newest first), with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the
   web) and «Завтра» (`todos.remind_on` = tomorrow); no tap means silence. `remind_on`
-  is set by code alone (on create in ops, by «Завтра») and cleared when a day or a project
-  arrives; it is shown nowhere. From 2026-09-16 to 2026-09-17 the LLM could set it too
+  is set by code alone (on create in ops, by «Завтра») and cleared when a day, a week or
+  a project arrives; it is shown nowhere. From 2026-09-16 to 2026-09-17 the LLM could set it too
   (`TodoOp.remind_on`, «нагадай про це в четвер», a «🔔 25.09» on the web): two days on one
   todo, a deadline and a nudge day, was more than anyone could keep apart, so a todo has
   one day, `due`, shown without «до». Since 2026-09-21 «нагадай …» is always a reminder,
@@ -298,7 +325,7 @@ The backlog may name code.
 - Three kinds of knowledge, three owners: `members` table (who talks to the bot, the
   Telegram allowlist; only `ADMIN_USER_ID` is env, the admin edits the rest on the web),
   `facts` (stable background about the family; the human edits it on the web, the LLM only
-  reads it), items/events/todos/projects/dreams/reminders/boards/the notes page (everything
+  reads it), items/events/todos/projects/dreams/reminders/the notes page (everything
   people tell the bot; the
   LLM writes them).
 - Python 3.12, `uv` for deps, `ruff` for lint/format, `pytest` with `asyncio_mode=auto`.

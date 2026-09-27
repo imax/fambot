@@ -1,21 +1,22 @@
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
 from family_ea.context import (
     Agenda,
-    board_blocks,
     bucket_todos,
     build_context,
     digest_text,
     fmt_due,
+    fmt_week,
     render_digest,
-    stale_label,
     stems,
-    today_lines,
+    todo_line,
+    week_note,
+    week_start,
     word_pattern,
 )
-from family_ea.db import Board, Database, Member, Todo
+from family_ea.db import Database, Member, Todo
 from family_ea.family import Family
 from tests.conftest import KYIV
 
@@ -45,12 +46,47 @@ def test_bucket_todos() -> None:
         _c(5, due="2026-09-01"),  # long overdue: first
         _c(6),  # no deadline -> open
         _c(7, status="done", due="2026-09-10"),  # closed, ignored
+        _c(8, week="2026-09-07"),  # planned for this week
+        _c(9, week="2026-08-31"),  # left over from the last one: still in the plan
+        _c(10, week="2026-09-14"),  # the next week: ahead
     ]
     b = bucket_todos(items, now)
     assert [c.id for c in b.today] == [1]
     assert [c.id for c in b.overdue] == [5, 2]
     assert [c.id for c in b.later] == [3, 4]
+    assert [c.id for c in b.week] == [8, 9]
+    assert [c.id for c in b.ahead] == [10]
     assert [c.id for c in b.open] == [6]
+
+
+def test_weeks_run_from_monday_to_sunday(family: Family) -> None:
+    thursday = date(2026, 9, 10)
+    monday = date(2026, 9, 7)
+    assert week_start(thursday) == monday == week_start(monday)
+    assert week_start(date(2026, 9, 13)) == monday  # Sunday ends the week
+    assert week_start(date(2026, 9, 14)) == date(2026, 9, 14)  # Monday starts the next
+    assert fmt_week(monday) == "07.09–13.09"
+    assert fmt_week(date(2026, 9, 28)) == "28.09–04.10"
+
+    notes = {
+        "2026-09-07": ("цей тиждень", ""),
+        "2026-09-14": ("наступний тиждень", ""),
+        "2026-08-31": ("з минулого тижня", "з минулого тижня"),
+        "2026-08-24": ("з тижня 24.08–30.08", "з тижня 24.08–30.08"),
+        "2026-09-21": ("тиждень 21.09–27.09", "тиждень 21.09–27.09"),
+    }
+    for week, (said, in_week) in notes.items():
+        assert week_note(date.fromisoformat(week), thursday) == said
+        assert week_note(date.fromisoformat(week), thursday, in_week=True) == in_week
+    assert week_note(monday, None) == "тиждень 07.09–13.09"  # nothing to compare with
+
+    planned = _c(1, text="Пані Марія зустріч", owner="oleh", week="2026-09-07")
+    assert todo_line(planned, family, today=thursday) == (
+        "[#1] Пані Марія зустріч (Олег, цей тиждень)"
+    )
+    assert todo_line(planned, family, with_id=False, today=thursday, in_week=True) == (
+        "Пані Марія зустріч (Олег)"
+    )
 
 
 def test_fmt_due() -> None:
@@ -75,7 +111,7 @@ def test_search_stems() -> None:
 def test_render_digest_caps_open_list(family: Family) -> None:
     now = datetime(2026, 9, 10, 8, 0, tzinfo=KYIV)
     b = bucket_todos([_c(i) for i in range(1, 9)], now)
-    text = render_digest(Agenda(), b, family, KYIV, max_open=5)
+    text = render_digest(Agenda(), b, family, now, max_open=5)
     assert "і ще 3" in text
     assert "Сьогодні" not in text
 
@@ -88,80 +124,66 @@ def test_digest_text(family: Family) -> None:
         _c(3, text="Купити лампочки"),
     ]
     b = bucket_todos(items, now)
-    text = digest_text(Agenda(), b, family, KYIV)
+    text = digest_text(Agenda(), b, family, now)
     assert text == (
         "Задачі на сьогодні:\n- Стоматолог (Анна, 10.09)\n"
         "Прострочено:\n- Поговорити з Марією (09.09)"
     )
     assert "Купити лампочки" not in text and "[#" not in text  # no undated ones, no ids
 
-    only_undated = bucket_todos([_c(3)], now)
-    assert digest_text(Agenda(), only_undated, family, KYIV) is None  # nothing to say
-    assert digest_text(Agenda(), bucket_todos([], now), family, KYIV) is None
+    only_undated = bucket_todos([_c(3), _c(4, week="2026-09-14")], now)  # or next week's
+    assert digest_text(Agenda(), only_undated, family, now) is None  # nothing to say
+    assert digest_text(Agenda(), bucket_todos([], now), family, now) is None
 
 
-def test_board_blocks_and_lines(family: Family) -> None:
-    now = datetime(2026, 9, 11, 8, 0, tzinfo=KYIV)
-    lists = {
-        "oleh": Board(1, "oleh", "сходити на НП\nпланка\n", "2026-09-10T18:00:00Z", "oleh"),
-        "anna": Board(2, "anna", "вода", "2026-09-11T04:30:00Z", "anna"),  # this morning
-    }
-    blocks = board_blocks(lists, family, "anna", now)  # the viewer's own first
-    assert [(b.member, b.text, b.stale) for b in blocks] == [
-        ("anna", "вода", ""),
-        ("oleh", "сходити на НП\nпланка", "вчора"),
-    ]
-    assert today_lines(blocks, "anna") == [
-        "На сьогодні (твоє):",
-        "- вода",
-        "На сьогодні (Олег, оновлено вчора):",
-        "- сходити на НП",
-        "- планка",
-    ]
-    assert stale_label("2026-09-01T10:00:00Z", now) == "01.09"
-    empty = board_blocks({}, family, "oleh", now)
-    assert [(b.member, b.text, b.stale) for b in empty] == [("oleh", "", ""), ("anna", "", "")]
-    assert today_lines(empty, "oleh") == []
-
-    head = today_lines(blocks, "anna")[:2]
-    nothing = bucket_todos([], now)
-    assert digest_text(Agenda(), nothing, family, KYIV, today=head) == (
-        "На сьогодні (твоє):\n- вода"
-    )
-    assert digest_text(Agenda(), nothing, family, KYIV, today=[]) is None
-
-
-def test_context_shows_today_boards(
+def test_context_shows_the_weeks_and_the_projects(
     db: Database, family: Family, oleh: Member, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-10T05:12:00Z")
-    db.save_today_list("oleh", "сходити на НП\nпланка", "oleh")
     now = datetime(2026, 9, 10, 8, 0, tzinfo=KYIV)
     ctx = build_context(db, family, now, oleh, "привіт")
     assert ctx.endswith("## Нове повідомлення\nвід oleh (Олег), текстом:\nпривіт")
     spoken = build_context(db, family, now, oleh, "привіт", is_voice=True)
     assert spoken.endswith("від oleh (Олег), голосове (розпізнаний текст):\nпривіт")
     assert (
-        "## Списки на сьогодні (today: дошка кожного, змінюється лише на явне прохання)\n"
-        "- oleh (Олег), оновлено 10.09 08:12:\n  сходити на НП\n  планка\n"
-        "- anna (Анна): порожньо\n" in ctx
+        "## Зараз\n2026-09-10 08:00 (Europe/Kyiv), четвер\n"
+        "Цей тиждень (week: this): 07.09–13.09, з понеділка по неділю;"
+        " наступний (week: next): 14.09–20.09\n" in ctx
     )
     home = db.create_project("Калинівка", created_by="oleh")
     db.create_project("Авто", created_by="oleh")
     mid = db.insert_message("oleh", "oleh", "...")
+
+    def new(text: str, **kw: str | int | None) -> int:
+        return db.create_todo(text, owner=None, created_by="oleh", source_message_id=mid, **kw)  # type: ignore[arg-type]
+
     db.create_todo(
         "Інструкція", owner="oleh", created_by="oleh", source_message_id=mid, project_id=home
     )
-    db.create_todo("Вільна", owner=None, created_by="oleh", source_message_id=mid)
+    new("Вільна")
+    new("Свердловина", project_id=home, week="2026-09-07")  # planned, and still in its project
+    new("Підвал", week="2026-09-14")
     ctx = build_context(db, family, now, oleh, "привіт")
     assert (
         "## Проєкти (projects: групи задач для вебу, лише назва; створюються,"
         " перейменовуються і закриваються лише на явне прохання)\n"
-        "- [#1] Калинівка (1 відкритих)\n"
+        "- [#1] Калинівка (2 відкритих)\n"
         "- [#2] Авто (0 відкритих)\n" in ctx
     )
-    assert "- [#2] Вільна\n- [#1] Інструкція (Олег, проєкт: Калинівка)\n" in ctx
-    assert "Не забути" not in ctx  # the second board went on 2026-09-16
+    assert (
+        "- [#4] Підвал (наступний тиждень)\n"
+        "- [#3] Свердловина (цей тиждень, проєкт: Калинівка)\n"
+        "- [#2] Вільна\n"
+        "- [#1] Інструкція (Олег, проєкт: Калинівка)\n" in ctx
+    )
+    assert (
+        "## Сьогодні / прострочено / цей тиждень\n"
+        "Цього тижня:\n- [#3] Свердловина\n"
+        "Наступні тижні:\n- [#4] Підвал (наступний тиждень)\n"
+        "Без дати:\n- [#2] Вільна\n- [#1] Інструкція (Олег)" in ctx
+    )
+    assert "Списки на сьогодні" not in ctx  # the boards went on 2026-09-27
+    assert "Не забути" not in ctx  # and the second one on 2026-09-16
 
 
 def test_build_context_sections(

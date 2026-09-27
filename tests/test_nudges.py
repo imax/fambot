@@ -42,6 +42,7 @@ def test_a_loose_end_gets_a_nudge_for_tomorrow(
             {"op": "create", "text": "Подзвонити по клініках"},
             {"op": "create", "text": "Замовити воду", "due": "2026-09-20"},
             {"op": "create", "text": "Поміняти масло", "project": "Авто"},
+            {"op": "create", "text": "Газовик пінг", "week": "this"},
         ],
     )
     assert all(a.ok for a in applied)
@@ -49,6 +50,7 @@ def test_a_loose_end_gets_a_nudge_for_tomorrow(
         "2026-09-17",  # the day after it was filed, in Kyiv
         None,  # a day: the digest has it
         None,  # a project: backlog
+        None,  # a week: the digest has its plan
     ]
     # The nudge day is the code's alone: a todo has one day, `due`, and the LLM has no
     # field for another (2026-09-17).
@@ -72,11 +74,17 @@ def test_old_todos_get_the_remind_on_column(tmp_path: Path) -> None:
           project_id INTEGER);
         INSERT INTO todos VALUES (1, 'Старе', NULL, 'open', NULL, NULL, 'oleh',
           '2026-09-10T10:00:00Z', 1, NULL, NULL);
+        CREATE TABLE today_lists (id INTEGER PRIMARY KEY, member TEXT NOT NULL,
+          text TEXT NOT NULL, created_at TEXT NOT NULL, created_by TEXT NOT NULL);
+        INSERT INTO today_lists VALUES (1, 'oleh', 'планка', '2026-09-10T10:00:00Z', 'oleh');
         """
     )
     conn.close()
     db = Database(path)
     assert [(t.id, t.remind_on) for t in db.open_todos()] == [(1, None)]  # nobody is nudged
+    assert [t.week for t in db.open_todos()] == [None]  # the column of 2026-09-27 is there
+    # The boards went on 2026-09-27; the old table stays in the file, unread.
+    assert db.conn.execute("SELECT text FROM today_lists").fetchone()["text"] == "планка"
     assert db.due_nudges("2026-12-31") == []
     db.close()
     Database(path).close()

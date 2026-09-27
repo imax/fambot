@@ -16,7 +16,9 @@ calls: all it knows is in the context the code builds for it.
 
 ## What it keeps
 
-- **Todos** (Задачі): something to do, with an owner and at most a deadline day. Closed
+- **Todos** (Задачі): something to do, with an owner and at most one «when»: a day, or a
+  week it is planned for («плани на тиждень: …»). The plan of the week is one list for
+  the family; what was not done stays in it. Closed
   by saying so in the chat or with a tap on the web.
 - **Things** (Речі): what the family has, whose it is and where it lies right now, with
   a history of moves and the photos it was described from. «Паспорт Олі лежить у сейфі».
@@ -26,8 +28,6 @@ calls: all it knows is in the context the code builds for it.
   person who dreamt it up. No date, never overdue; fulfilled or let go. «Мрію пройти
   Camino de Santiago».
 - **Reminders**: a message to one person or everyone at a given moment.
-- **Today boards** («на сьогодні»): each person's free-text list for the day, kept as one
-  sentence and rewritten on request.
 - **Facts**: stable background about the family, edited by a human on the web; the model
   reads it, never writes it.
 
@@ -35,8 +35,9 @@ What happened, stories and chatter are not kept unless someone asks: the bot ans
 does not promise to write such things down. (A journal of notes by day was built in the
 first days and removed on 2026-09-12; the one page above came on 2026-09-13.)
 
-Every push is deterministic: the 08:30 digest renders the boards, today's and tomorrow's
-events, todos due today and overdue, and stays silent when there is nothing to say.
+Every push is deterministic: the 08:30 digest renders today's and tomorrow's events,
+todos due today and overdue, then the rest of the week, and stays silent when there is
+nothing to say.
 
 ## Status
 
