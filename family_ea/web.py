@@ -22,7 +22,7 @@ import json
 import logging
 import re
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime, time
 from itertools import groupby
 from pathlib import Path
 from typing import Annotated
@@ -44,6 +44,7 @@ from .context import (
     reminder_rows,
     search_notes,
     undated_groups,
+    week_start,
     word_pattern,
 )
 from .db import Attachment, Database, Item, Member
@@ -59,7 +60,6 @@ log = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 SESSION_COOKIE = "session"
-DONE_SHOWN = 5  # the «Зроблено» tail of the home page; search (?q=) finds every done todo
 CHAT_SHOWN = 30  # the tail of the member's chat on /chat
 SHA256 = re.compile(r"[0-9a-f]{64}")
 # What a browser's MediaRecorder produces (Chrome and Firefox: webm; Safari: mp4), by the
@@ -100,7 +100,6 @@ def build_web(
     templates.env.globals["chat_enabled"] = dev_chat and pipeline is not None
     templates.env.filters["dt"] = lambda iso: fmt_dt(iso, settings.tz)
     templates.env.filters["date"] = fmt_date
-    templates.env.filters["day"] = lambda iso: fmt_dt(iso, settings.tz)[:5]
     templates.env.filters["due"] = fmt_due
     templates.env.filters["when"] = lambda e: fmt_event_when(e, settings.tz)
     templates.env.filters["person"] = family.display_name
@@ -180,9 +179,9 @@ def build_web(
         request: Request, member: Annotated[Member, Depends(authed)], q: str | None = None
     ) -> HTMLResponse:
         """This week and the next (events and todos by day, the todos planned for the
-        week, what is late), the rest of the calendar under «Далі», the pending reminders,
-        the todos without a day or a week by project, the last done ones; `?q=` searches
-        instead: events, todos, items, and the sections of the notes page."""
+        week, what is late, what this week got done), the rest of the calendar under
+        «Далі», the pending reminders, the todos without a day or a week by project; `?q=`
+        searches instead: events, todos, items, and the sections of the notes page."""
         if q and q.strip():
             q = q.strip()
             pattern = word_pattern(q)
@@ -203,15 +202,16 @@ def build_web(
             )
         now = datetime.now(settings.tz)
         todos, projects = db.open_todos(), db.open_projects()
+        monday = datetime.combine(week_start(now.date()), time(), settings.tz)
+        done = db.done_todos_since(monday.astimezone(UTC).isoformat().replace("+00:00", "Z"))
         return templates.TemplateResponse(
             request,
             "index.html",
             {
                 "q": "",
-                "plan": build_plan(db.planned_events(), todos, now, family, projects),
+                "plan": build_plan(db.planned_events(), todos, now, family, projects, done),
                 "reminders": reminder_rows(db.pending_reminders(), now, family),
                 "undated": undated_groups(todos, family, projects),
-                "done": db.recent_done_todos(DONE_SHOWN),
             },
         )
 

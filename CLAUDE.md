@@ -54,8 +54,8 @@ family_ea/
                 todo buckets (today/overdue/week/ahead/open/later), the weeks (`week_start`,
                 `week_note`), the project lines, the dream lines, the notes page for the
                 LLM, the digest text, the web home (`build_plan`: this week and the next,
-                events and todos by day, the week's todos, what is late, the rest under
-                «Далі»; the pending reminders; `undated_groups`: the todos without a day
+                events and todos by day, the week's todos, what is late, what this week
+                got done and its tally, the rest under «Далі»; the pending reminders; `undated_groups`: the todos without a day
                 or a week in a group per project), the search stems
   llm.py        pydantic output schema, system prompt, the one messages.parse() call
   ops.py        apply LLM ops to db, with validation and an `applied` log
@@ -74,8 +74,8 @@ family_ea/
                 voice, photo), the 08:30 digest job, the per-minute reminder job, «Відкрити» (a
                 login link) under the digest, /today and /web
   web.py        FastAPI + Jinja: GET /login?t= (the bot's link; sets the cookie), GET / (this
-                week and the next, the pending reminders, the todos without a day or a
-                week, the last done ones; ?q= searches), GET /items (Речі:
+                week and the next with this week's done ones, the pending reminders, the
+                todos without a day or a week; ?q= searches), GET /items (Речі:
                 places, recent; ?place= ?owner= list), GET /items/:id (photos, history),
                 GET /dreams (Мрії: open ones, then fulfilled; read-only), GET /notes
                 (Нотатки: the LLM's Markdown rendered, its source photos; read-only),
@@ -165,7 +165,11 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   snaps it to the Monday, `ops.normalize_week`; a week that is over is refused); on a
   Sunday «на тиждень» means the one that starts tomorrow (prompt only). The context
   lists the days of both weeks with their dates (`context.week_days`), so the model
-  reads a weekday's date instead of counting it. A day inside an item of a plan («Буріння
+  reads a weekday's date instead of counting it. A new todo with nothing said about when
+  goes into the week (2026-09-28, after «Написати Петру» landed undated and needed «це в
+  план на цей тиждень»): code does it on create (`ops.default_week`: this one, on a Sunday
+  the next), in its project too if it has one; «без дати», «колись» is the LLM's `week:
+  "-"`, the one way to file a todo outside the plan. A day inside an item of a plan («Буріння
   (вт)») is a hint, not a deadline: it stays in the text and the todo goes into the week
   (prompt only; asked for on the first evening, since the day was not the family's to set). The plan is one
   list for the family, the owner next to each row. **A week is not a project**: a project
@@ -176,7 +180,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   (`context.week_note`), until a person closes, moves or takes it off. No job rolls
   anything over. The web home is the weeks (`context.build_plan`): «Цей тиждень»
   (what is late, the days from today on that hold an event or a todo, today like any
-  other, «Протягом тижня»),
+  other, «Протягом тижня» and under it, greyed, every todo done since Monday, whatever it
+  was, with «зроблено 3 з 14» next to the week's title; the «Зроблено» tail at the foot
+  of the page, the last five, went on 2026-09-28),
   «Наступний тиждень», each only when it holds anything (both empty: this one stays and
   says «Відпочиваємо :-)»),
   the rest under «Далі», the same days in full (a line that unfolded until that
@@ -249,7 +255,8 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   Kyiv wall-clock time on the next day still ahead (`bot.reminder_tap`, through
   `next_repeat`) and rewrites the message without the button; no «Зроблено», since a sent
   reminder has no state to mark. A repeating one gets no button.
-  A nudge (2026-09-16) is a todo without a day, a week or a project, sent once at `NUDGE_TIME`
+  A nudge (2026-09-16) is a todo without a day, a week or a project (since 2026-09-28 only
+  one filed «без дати», since a new todo goes into the week), sent once at `NUDGE_TIME`
   (10:00 since the evening of 2026-09-16, 12:30 before) the day after it was filed, to its owner or to everyone, at most one per
   member per day (the newest first), with two inline buttons: «✓ Зроблено» (`db.close_todo`, like the
   web) and «Завтра» (`todos.remind_on` = tomorrow); no tap means silence. `remind_on`

@@ -1047,11 +1047,13 @@ class Database:
         ).fetchall()
         return [_todo(r) for r in rows]
 
-    def recent_done_todos(self, limit: int) -> list[Todo]:
-        """The last ones closed as done, newest first: the tail of the home page."""
+    def done_todos_since(self, since: str) -> list[Todo]:
+        """The ones closed as done at or after `since` (ISO UTC), newest first: this week's
+        done ones at the foot of its plan on the home page."""
         rows = self.conn.execute(
-            "SELECT * FROM todos WHERE status = 'done' ORDER BY closed_at DESC, id DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM todos WHERE status = 'done' AND closed_at >= ?"
+            " ORDER BY closed_at DESC, id DESC",
+            (since,),
         ).fetchall()
         return [_todo(r) for r in rows]
 

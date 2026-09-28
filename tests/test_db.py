@@ -48,7 +48,7 @@ def test_todos_keep_the_order_dragged_on_the_web(db: Database) -> None:
     db.close_todo(a, "done")
     db.reorder_todos([a, d, c])  # a stale page: a is closed, ignored; b unlisted: keeps its place
     assert [(x.id, x.position) for x in db.open_todos()] == [(d, 2), (c, 3), (b, 4)]
-    assert [x.id for x in db.recent_done_todos(5)] == [a]
+    assert [x.id for x in db.done_todos_since("2000-01-01T00:00:00Z")] == [a]
     # Since projects (2026-09-14) each undated list is dragged on its own: the other
     # lists' positions stay, so a todo of another project is never moved by a drag here.
     e = new("e")

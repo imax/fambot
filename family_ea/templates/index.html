@@ -4,11 +4,12 @@
 {# the weeks, Monday to Sunday: this one, and the next when it holds anything. A small
    heading per day from today on (only the days that hold something), under it the events with the time on the
    left and the todos of that day with their «☐» there; then the todos planned for the
-   week without a day. This week starts with what is late. What comes after the two weeks
+   week without a day, and under them, greyed, what this week got done, tallied next to
+   its title. This week starts with what is late. What comes after the two weeks
    stands under «Далі», the same days by the calendar. What goes
    where is said in the chat; the page marks a todo done and edits its text #}
 {% for w in plan.weeks %}
-<h2>{{ w.title }} <span class="meta">· {{ w.span }}</span></h2>
+<h2>{{ w.title }} <span class="meta">· {{ w.span }}{% if w.progress %} · {{ w.progress }}{% endif %}</span></h2>
 <div class="agenda">
 {% if w.empty %}{# nothing in either week: this one stays, as the page's empty state #}
 <ul><li class="empty">Відпочиваємо :-)</li></ul>
@@ -20,10 +21,10 @@
 </ul>
 {% endif %}
 {% with days = w.days %}{% include "_days.html" %}{% endwith %}
-{% if w.rows %}
+{% if w.rows or w.done %}
 <h3>Протягом тижня</h3>
 <ul>
-  {% for r in w.rows %}{% include "_slot.html" %}{% endfor %}
+  {% for r in w.rows + w.done %}{% include "_slot.html" %}{% endfor %}
 </ul>
 {% endif %}
 </div>
@@ -64,19 +65,11 @@
 </ul>
 </section>
 {% endfor %}
-{% if done %}
-<h2>Зроблено</h2>
-<ul class="rows done">
-  {% for c in done %}
-  <li><span class="mark">✓</span>{{ c.text }} <span class="meta">· {% if c.owner %}{{ c.owner | person }} · {% endif %}{{ c.closed_at | day }}</span></li>
-  {% endfor %}
-</ul>
-{% endif %}
 <script>
 // A tap on a todo's «☐» marks it done: the row greys out at once, and for a few
 // seconds a second tap takes it back; then the close is posted (at once if the page is
 // hidden or left meanwhile). The row stays where it is until the next load, then it is
-// under «Зроблено». Closing is final: nothing reopens a todo, in the chat either.
+// among the week's done ones. Closing is final: nothing reopens a todo, in the chat either.
 (() => {
   const DELAY = 4000;
   const pending = new Map(); // li -> the timer before its close is posted
@@ -130,7 +123,7 @@
     const li = button.closest("li");
     if (li.classList.contains("closed")) return;
     const span = li.querySelector(".text");
-    const cell = span.parentElement; // the text and its meta; in a list the mark too
+    const cell = span.parentElement; // the text and its meta
     const old = span.textContent;
     const box = document.createElement("textarea");
     box.className = "editor";

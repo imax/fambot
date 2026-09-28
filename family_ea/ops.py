@@ -223,6 +223,14 @@ def nudge_day(tz: ZoneInfo) -> str:
     return (today(tz) + timedelta(days=1)).isoformat()
 
 
+def default_week(tz: ZoneInfo) -> str:
+    """The week a new todo goes into when nothing was said about when: this one, and on a
+    Sunday the one that starts tomorrow (the family plans on Sunday evening, and «на
+    тиждень» then means the next one too)."""
+    d = today(tz)
+    return (week_start(d) + (WEEK if d.weekday() == 6 else timedelta(0))).isoformat()
+
+
 def _event_fields(e: EventOp, family: Family, tz: ZoneInfo) -> tuple[dict, list[str]]:
     """Validated fields present on the op. A timed event has no all-day dates, and vice versa."""
     fields: dict[str, str | None] = {}
@@ -464,9 +472,14 @@ def apply_ops(
             if "text" not in fields:
                 applied.append(Applied("todo", "create", None, False, "empty text"))
                 continue
-            if "remind_on" not in fields:
+            if not (t.due.strip() or t.week.strip()):
+                # Nothing said about when: into the week's plan, in its project if it has
+                # one (2026-09-28: «Написати Петру» landed under «Без дати» and needed «це
+                # в план на цей тиждень»). «Без дати», «колись» is the LLM's `week: "-"`.
+                fields["week"] = default_week(tz)
+            if not (fields.get("due") or fields.get("week") or fields.get("project_id")):
                 # A loose end (no day, no week, no project): the bot brings it up tomorrow
-                # at noon, once (see bot.deliver_due_nudges).
+                # at 10:00, once (see bot.deliver_due_nudges).
                 fields["remind_on"] = nudge_day(tz)
             tid = db.create_todo(
                 str(fields["text"] or ""),

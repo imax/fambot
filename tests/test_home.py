@@ -135,6 +135,35 @@ def test_plan_puts_todos_into_weeks(family: Family) -> None:
     assert [g.name for g in undated_groups(todos, family)] == [""]  # no projects: one group
 
 
+def test_plan_shows_what_the_week_got_done(family: Family) -> None:
+    """Done since this Monday: at the foot of this week, newest first, whatever it was;
+    the tally counts them against the week's open todos (2026-09-28)."""
+    todos = [
+        _c(1, text="Пошта", due="2026-09-11"),
+        _c(2, text="Газовик пінг", owner="oleh", week="2026-09-07"),
+        _c(3, text="Проспали", due="2026-09-09"),  # overdue: counted
+        _c(4, text="Наступного", week="2026-09-14"),  # the next week's: not
+        _c(5, text="Без дати"),  # not in the week: not
+    ]
+    done = [
+        _c(6, text="Масло", status="done", project_id=1, closed_at="2026-09-08T10:00:00Z"),
+        _c(7, text="Вікна", owner="anna", status="done", closed_at="2026-09-10T09:00:00Z"),
+        _c(8, text="Минулого", status="done", closed_at="2026-09-06T20:59:59Z"),  # Sun 23:59
+        _c(9, text="Знята", status="dropped", closed_at="2026-09-10T09:00:00Z"),
+    ]
+    car = Project(1, "Авто", "open", "oleh", "2026-09-01T00:00:00Z", None)
+    this, nxt = build_plan([], todos, NOW, family, [car], done).weeks
+    assert [(r.kind, r.id, r.who, r.project) for r in this.done] == [
+        ("done", 7, "Анна", ""),
+        ("done", 6, "", "Авто"),
+    ]
+    assert this.progress == "зроблено 2 з 5" and nxt.progress == "" and nxt.done == []
+    # Only done ones left: the week stays, to show it; nothing at all: no tally.
+    (this,) = build_plan([], [], NOW, family, [car], done[:1]).weeks
+    assert not this.empty and this.progress == "зроблено 1 з 1"
+    assert build_plan([], [], NOW, family).weeks[0].progress == ""
+
+
 def test_reminder_rows(family: Family) -> None:
     # Their own block: by time, the repeating ones last; never overdue: one whose time has
     # passed is about to be sent, so today's.
@@ -220,19 +249,23 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
     db.create_todo(
         "Пошта", owner="oleh", created_by="oleh", source_message_id=mid, due="2026-09-10"
     )
+    old = db.create_todo("Вікна", owner="oleh", created_by="oleh", source_message_id=mid)
+    monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-06T20:59:00Z")  # Sunday
+    db.close_todo(old, "done")  # last week's: not on the page any more
     done = db.create_todo("Замовити воду", owner="anna", created_by="anna", source_message_id=mid)
+    monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-06T21:00:00Z")  # Mon 00:00
     db.close_todo(done, "done")
     client = TestClient(build_web(_settings(), family, db))
 
     home = html.unescape(client.get("/", headers=_auth()).text)  # «п'ятниця» is escaped
-    # this week, the next one, the tail, the reminders, then the lists
+    # this week (with what it got done out of its todos), the next one, the tail, the
+    # reminders, then the lists
     heads = [
-        '<h2>Цей тиждень <span class="meta">· 07.09–13.09</span></h2>',
+        '<h2>Цей тиждень <span class="meta">· 07.09–13.09 · зроблено 1 з 5</span></h2>',
         '<h2>Наступний тиждень <span class="meta">· 14.09–20.09</span></h2>',
         "<h2>Далі</h2>",
         "<h2>Нагадування</h2>",
         "<h2>Без дати</h2>",
-        "<h2>Зроблено</h2>",
     ]
     assert [home.index(h) for h in heads] == sorted(home.index(h) for h in heads)
     assert "На сьогодні" not in home and "<h2>Календар</h2>" not in home  # until 2026-09-27
@@ -251,8 +284,15 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
         "Забрати форму",  # the todo of that day, after its events
         "<h3>Протягом тижня</h3>",
         "Газовик пінг",
+        "Замовити воду",  # done this week: at the foot of its plan (2026-09-28)
     ]
     assert [week.index(x) for x in parts] == sorted(week.index(x) for x in parts)
+    assert re.search(
+        r'<li class="done" data-id="\d+">\s*<span class="mark">✓</span>\s*'
+        r'<span><span class="text">Замовити воду</span> <span class="meta">· Анна<',
+        week,
+    )
+    assert "Вікна" not in home and "<h2>Зроблено</h2>" not in home  # the page's tail until then
     assert "· 09.09 · Анна" in week  # late since, whose
     # An event: the time on the left, the text, no owner, no end.
     assert '<li class="event" data-id="1">' in week and ".ics" not in home
@@ -279,16 +319,14 @@ def test_web_home(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch)
 
     # «Нагадування»: its own block under the weeks, «⏰» for «☐»
     ahead = home[home.index("<h2>Нагадування</h2>") : home.index("<h2>Без дати</h2>")]
-    assert '<span class="mark">⏰</span>Стоматолог о 15:30' in ahead
+    assert re.search(r'<span class="mark">⏰</span>\s*<span>Стоматолог о 15:30', ahead)
     assert "· завтра 14:30 · усім" in ahead and "☐" not in ahead
 
-    undated = home[home.index("<h2>Без дати</h2>") : home.index("<h2>Зроблено</h2>")]
+    undated = home[home.index("<h2>Без дати</h2>") :]
     assert ">Подзвонити газовику Петру</span>" in undated
     assert "Стоматолог" not in undated and "Газовик пінг" not in undated
+    assert "Замовити воду" not in undated
     assert 'class="id"' not in home  # database ids are not for people
-    tail = home[home.index("<h2>Зроблено</h2>") :]  # the last done ones, at the very bottom
-    assert "✓</span>Замовити воду" in tail and "· Анна ·" in tail
-    assert "Замовити воду" not in home[: home.index("<h2>Зроблено</h2>")]
     assert (
         client.get("/calendar", headers=_auth()).status_code == 404
     )  # its own tab until 2026-09-16
@@ -378,8 +416,9 @@ def test_web_todo_done(db: Database, family: Family, monkeypatch: pytest.MonkeyP
     c = db.get_todo(cid)
     assert c is not None and c.status == "done" and c.closed_at == "2026-09-10T12:00:00Z"
     assert heard == [("oleh", [("todo", "close:done", cid, True)])]  # the others hear of it
-    home = client.get("/", headers=_auth()).text
-    assert home.index("<h2>Зроблено</h2>") < home.index("Купити хліб")
+    home = client.get("/", headers=_auth()).text  # done this week: at the foot of its plan
+    assert home.index("<h3>Протягом тижня</h3>") < home.index("Купити хліб")
+    assert '<li class="done" data-id="1">' in home and '<li class="todo"' not in home
     assert client.post(url, headers=_auth()).status_code == 404  # once; nothing reopens
     assert client.post("/todos/999/done", headers=_auth()).status_code == 404
 
@@ -390,6 +429,7 @@ def test_web_week_is_one_list_for_everyone(
     """The plan of the week is shared: both see the same rows, each with its owner, and
     either one marks the other's done."""
     freeze_web_clock(monkeypatch, NOW)
+    monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-10T12:00:00Z")
     mid = db.insert_message("anna", "anna", "...")
     hers = db.create_todo(
         "Помити пічку", owner="anna", created_by="anna", source_message_id=mid, week="2026-09-07"
@@ -406,7 +446,12 @@ def test_web_week_is_one_list_for_everyone(
     assert mine == week(client.get("/", headers=_auth("anna")).text)
     assert "Помити пічку" in mine and "· Анна<" in mine and "· Олег<" in mine
     assert client.post(f"/todos/{hers}/done", headers=_auth()).status_code == 204  # Олег's tap
-    assert "Помити пічку" not in week(client.get("/", headers=_auth("anna")).text)
+    theirs = week(client.get("/", headers=_auth("anna")).text)  # still there, done
+    assert re.search(
+        r'<li class="done" data-id="1">\s*<span class="mark">✓</span>\s*'
+        r'<span><span class="text">Помити пічку',
+        theirs,
+    )
 
 
 def test_web_home_empty(db: Database, family: Family, monkeypatch: pytest.MonkeyPatch) -> None:

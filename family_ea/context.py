@@ -378,7 +378,7 @@ class Row:
     pending reminder or an open todo. Everything is formatted here; the template only lays
     it out."""
 
-    kind: str  # 'event' | 'reminder' | 'todo'
+    kind: str  # 'event' | 'reminder' | 'todo' | 'done' (a todo done this week, at its foot)
     id: int
     text: str
     time: str = ""  # '16:00' (a start); ALL_DAY for an all-day event; '' for a todo
@@ -407,7 +407,9 @@ class Week:
     empty today stood there with «Відпочиваємо :-)»), and the todos planned for the
     week without a day. This week also holds what is late: the todos past their day (`overdue`), and
     among `rows` the ones left over from an earlier week, noted so; nothing moves them on
-    or out but a person."""
+    or out but a person. And what was done in it (`done`, 2026-09-28: until then the last
+    five done ones stood under «Зроблено» at the foot of the page), with the tally in
+    `progress`: the week's progress, seen where its plan is."""
 
     start: date
     title: str  # 'Цей тиждень' | 'Наступний тиждень'
@@ -415,10 +417,12 @@ class Week:
     overdue: list[Row] = field(default_factory=list)
     days: list[Day] = field(default_factory=list)
     rows: list[Row] = field(default_factory=list)
+    done: list[Row] = field(default_factory=list)
+    progress: str = ""  # 'зроблено 3 з 14': this week's, over its todos; '' for the next
 
     @property
     def empty(self) -> bool:
-        return not (self.overdue or self.days or self.rows)
+        return not (self.overdue or self.days or self.rows or self.done)
 
 
 @dataclass
@@ -470,6 +474,7 @@ def build_plan(
     now: datetime,
     family: Family,
     projects: list[Project] | None = None,
+    done: list[Todo] | None = None,
 ) -> Plan:
     """The weeks of the web home: planned events and open todos with a day or a week.
 
@@ -477,7 +482,9 @@ def build_plan(
     day sits on it after the events, or under «Прострочено» of this week once the day has
     passed. A todo planned for a week sits in that week's `rows`, in the order
     `open_todos()` gives; one planned for a week that is over stays in this week's, noted
-    («з минулого тижня»). Days past next Sunday go to `later`.
+    («з минулого тижня»). Days past next Sunday go to `later`. Of `done`, the ones closed
+    as done since this Monday go to this week's `done`, newest first, whatever they were
+    (a day, a week, a project): what the week got done.
     """
     tz = now.tzinfo
     assert isinstance(tz, ZoneInfo)
@@ -539,6 +546,12 @@ def build_plan(
             (nxt if monday == nxt.start else this).rows.append(row)
 
     this.overdue = [row for _, row in sorted(overdue, key=lambda pair: pair[0])]
+    for t in sorted(done or [], key=lambda t: (t.closed_at or "", t.id), reverse=True):
+        if t.status != "done" or parse_iso(t.closed_at or "").astimezone(tz).date() < this.start:
+            continue
+        who = family.display_name(t.owner) if t.owner else ""
+        project = names.get(t.project_id, "") if t.project_id is not None else ""
+        this.done.append(Row("done", t.id, t.text, who=who, project=project))
     plan = Plan()
     for day in sorted(by_day):
         d = Day(
@@ -551,6 +564,10 @@ def build_plan(
             plan.later.append(d)
         else:
             (nxt if day >= nxt.start else this).days.append(d)
+    left = len(this.overdue) + len(this.rows)
+    left += sum(r.kind == "todo" for d in this.days for r in d.rows)
+    if left or this.done:
+        this.progress = f"зроблено {len(this.done)} з {len(this.done) + left}"
     plan.weeks = [w for w in (this, nxt) if not w.empty] or [this]
     return plan
 

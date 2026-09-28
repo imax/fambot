@@ -218,7 +218,8 @@ def test_web_lists_pending_reminders(
     client = TestClient(build_web(_settings(), family, db))
     page = client.get("/", headers=_auth()).text
     # Not in the calendar: its own block under it, «⏰» where a todo has «☐».
-    assert page.index("<h2>Нагадування</h2>") < page.index("⏰</span>Зустріч з пані Марією о 16:00")
+    assert page.index("<h2>Нагадування</h2>") < page.index("Зустріч з пані Марією о 16:00")
+    assert '<span class="mark">⏰</span>' in page
     assert "· завтра 15:00 · усім" in page and "15:00</span>" not in page
     assert "Квіти" not in page
 

@@ -1,5 +1,7 @@
-"""Nudges: a todo without a day or a project comes back once, the day after, at noon, with
-«Зроблено» and «Завтра» under it. One per member per day; silence unless «Завтра»."""
+"""Nudges: a todo without a day, a week or a project comes back once, the day after, at
+10:00, with «Зроблено» and «Завтра» under it. One per member per day; silence unless
+«Завтра». Since 2026-09-28 a new todo goes into the week's plan unless said otherwise, so
+a loose end is one said to be so («без дати», «колись»: `week: "-"`)."""
 
 import sqlite3
 from datetime import date, datetime
@@ -39,10 +41,11 @@ def test_a_loose_end_gets_a_nudge_for_tomorrow(
         db,
         family,
         [
-            {"op": "create", "text": "Подзвонити по клініках"},
+            {"op": "create", "text": "Подзвонити по клініках", "week": "-"},
             {"op": "create", "text": "Замовити воду", "due": "2026-09-20"},
-            {"op": "create", "text": "Поміняти масло", "project": "Авто"},
+            {"op": "create", "text": "Поміняти масло", "project": "Авто", "week": "-"},
             {"op": "create", "text": "Газовик пінг", "week": "this"},
+            {"op": "create", "text": "Пошта"},
         ],
     )
     assert all(a.ok for a in applied)
@@ -51,6 +54,7 @@ def test_a_loose_end_gets_a_nudge_for_tomorrow(
         None,  # a day: the digest has it
         None,  # a project: backlog
         None,  # a week: the digest has its plan
+        None,  # nothing said: the week's plan, the same
     ]
     # The nudge day is the code's alone: a todo has one day, `due`, and the LLM has no
     # field for another (2026-09-17).

@@ -1,5 +1,6 @@
-{# one row of a week: the narrow column on the left holds the time of an event or the «☐»
-   of a todo, the text stands next to it; a todo says whose it is and its project #}
+{# one row of a week: the column on the left holds the time of an event, or the «☐» of a
+   todo («✓» once done), the text stands next to it; a todo says whose it is and its
+   project #}
 <li class="{{ r.kind }}" data-id="{{ r.id }}">
   {%- if r.kind == 'todo' %}
   <span class="mark" title="Торкнись, коли зроблено">☐</span>
@@ -7,6 +8,11 @@
     {%- set meta = [r.note, r.who, r.project] | select | join(' · ') %}
     {%- if meta %} <span class="meta">· {{ meta }}</span>{% endif %}</span>
   <span class="tools"><button class="edit" type="button" title="Змінити текст">✎</button></span>
+  {%- elif r.kind == 'done' %}
+  <span class="mark">✓</span>
+  <span><span class="text">{{ r.text }}</span>
+    {%- set meta = [r.who, r.project] | select | join(' · ') %}
+    {%- if meta %} <span class="meta">· {{ meta }}</span>{% endif %}</span>
   {%- else %}
   <span class="time{% if r.all_day %} allday{% endif %}">{{ r.time }}</span>
   <span>{{ r.text }}</span>

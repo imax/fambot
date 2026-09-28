@@ -1,9 +1,13 @@
+{# one row of a list under the weeks, a pending reminder or a todo without a day or a week:
+   the «⏰» or the «☐» in its own column, like in a week, so a long text wraps under the text #}
 <li class="{{ r.kind }}" data-id="{{ r.id }}">
-  {%- if r.time %}<span class="time{% if r.all_day %} allday{% endif %}">{{ r.time }}</span>{% endif %}
+  {%- if r.kind == 'todo' %}
+  <span class="mark" title="Торкнись, коли зроблено">☐</span>
+  {%- else %}
+  <span class="mark">⏰</span>
+  {%- endif %}
   <span>
-    {%- if r.kind == 'todo' %}<span class="mark" title="Торкнись, коли зроблено">☐</span><span class="text">{{ r.text }}</span>
-    {%- elif r.kind == 'reminder' %}<span class="mark">⏰</span>{{ r.text }}
-    {%- else %}{{ r.text }}{% endif %}
+    {%- if r.kind == 'todo' %}<span class="text">{{ r.text }}</span>{% else %}{{ r.text }}{% endif %}
     {%- set meta = [r.note, r.who, r.project] | select | join(' · ') %}
     {%- if meta %} <span class="meta">· {{ meta }}</span>{% endif %}
   </span>

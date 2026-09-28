@@ -114,6 +114,46 @@ def test_a_todo_has_a_day_or_a_week(
     assert when(2) == (None, "2026-09-14")
 
 
+def test_a_new_todo_goes_into_the_week(
+    db: Database, family: Family, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing said about when: the week's plan, a project or not (2026-09-28); on a Sunday
+    the week that starts tomorrow. `week: "-"` («без дати», «колись») keeps it out."""
+    monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-10T09:00:00Z")  # Thursday
+    mid = db.insert_message("oleh", "oleh", "...")
+    db.create_project("Авто", created_by="oleh")
+
+    def apply(ops: list[dict]) -> list:
+        r = LlmResult.model_validate({"reply": "", "todos": ops})
+        return apply_ops(db, r, author_id="oleh", message_id=mid, family=family, tz=KYIV)
+
+    applied = apply(
+        [
+            {"op": "create", "text": "Написати Петру"},
+            {"op": "create", "text": "Масло у Volvo", "project": "Авто"},
+            {"op": "create", "text": "Колись Японія", "week": "-"},
+            {"op": "create", "text": "Без дня", "due": "-"},
+            {"op": "create", "text": "Пошта", "due": "2026-09-11"},
+        ]
+    )
+    assert all(a.ok for a in applied)
+    todos = [db.get_todo(i) for i in range(1, 6)]
+    assert [(t.due, t.week, t.project_id, t.remind_on) for t in todos if t] == [
+        (None, "2026-09-07", None, None),
+        (None, "2026-09-07", 1, None),  # in the week, and in its project
+        (None, None, None, "2026-09-11"),  # said to be a loose end: the nudge tomorrow
+        (None, None, None, "2026-09-11"),
+        ("2026-09-11", None, None, None),
+    ]
+    # An update says nothing about when unless it does: no week comes with it.
+    apply([{"op": "update", "id": 3, "text": "Колись Японія з Олею"}])
+    assert db.get_todo(3).week is None  # type: ignore[union-attr]
+
+    monkeypatch.setattr("family_ea.db.utc_now_iso", lambda: "2026-09-13T18:00:00Z")  # Sunday
+    apply([{"op": "create", "text": "Подзвонити газовику"}])
+    assert db.get_todo(6).week == "2026-09-14"  # type: ignore[union-attr]
+
+
 def test_normalize_datetime() -> None:
     assert normalize_datetime("2026-09-10T15:30:00+03:00", KYIV) == "2026-09-10T12:30:00Z"
     assert normalize_datetime("2026-09-10T15:30:00", KYIV) == "2026-09-10T12:30:00Z"
