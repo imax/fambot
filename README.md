@@ -80,6 +80,10 @@ fly secrets set ADMIN_USER_ID=... TELEGRAM_BOT_TOKEN=... ANTHROPIC_API_KEY=... O
 make deploy                   # fly deploy --ha=false: one machine, one poller on the bot token, one SQLite
 ```
 
+After that, a push to `main` deploys by itself (`.github/workflows/deploy.yml`: lint,
+tests, then `fly deploy --ha=false`), given a `FLY_API_TOKEN` repo secret from
+`fly tokens create deploy`.
+
 The web view has no password: `/web` in Telegram (and «Відкрити» under the morning
 digest) sends a signed link that logs that browser in for a year. `GET /backup.db` is a
 consistent online backup of the database; `make backup` signs a short-lived bearer token

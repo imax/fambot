@@ -27,7 +27,8 @@ uv run python -m family_ea backup --db data/prod.db   # zip: db snapshot + files
 uv run python -m family_ea log --db data/prod.db --last 50   # messages + what the LLM did
 uv run pytest                             # tests
 uv run ruff check . && uv run ruff format .
-fly deploy --ha=false                     # deploy; never without --ha=false (see Production)
+fly deploy --ha=false                     # deploy by hand; never without --ha=false (see Production);
+                                          #   a push to main deploys too (.github/workflows/deploy.yml)
 ```
 
 `make` lists the shortcuts: `make backup` (pull + zip), `make log` (pull + log, `LAST=`),
@@ -307,6 +308,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   volume `data` at `/data`, database `/data/family.db`, files under `/data/files`
   (`FILES_DIR` in `fly.toml`; locally next to the database, `data/files`). Fly keeps daily
   volume snapshots for 5 days; `pull` mirrors the files to the laptop.
+- **A push to `main` deploys** (2026-10-27): `.github/workflows/deploy.yml` runs lint and
+  tests, then `flyctl deploy --ha=false --remote-only` with the repo secret `FLY_API_TOKEN`;
+  one deploy at a time. Red checks mean no deploy.
 - **Always `fly deploy --ha=false`.** Two machines would mean two pollers on one bot token
   and two SQLite files.
 - Secrets on Fly: `ADMIN_USER_ID`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
