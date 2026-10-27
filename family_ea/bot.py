@@ -30,6 +30,7 @@ from telegram.ext import (
     filters,
 )
 
+from . import outages
 from .auth import LINK_TTL, sign
 from .config import Settings
 from .context import bucket_todos, build_agenda, digest_text, event_line, parse_iso
@@ -82,6 +83,11 @@ def help_text(settings: Settings) -> str:
     when = settings.digest_time.strftime("%H:%M")
     nudge = settings.nudge_time.strftime("%H:%M")
     commands = "\n".join(f"/{c.command} — {c.description}" for c in COMMANDS)
+    light = (
+        f", а згори графік відключень світла ДТЕК (черга {settings.outage_group})"
+        if settings.outage_group
+        else ""
+    )
     return (
         "Пиши або наговорюй: що треба зробити, що коли буде, де що лежить. "
         "Фото теж: підпиши, що з ним зробити («це лежить у сейфі», «зроби з цього задачу»), "
@@ -93,7 +99,7 @@ def help_text(settings: Settings) -> str:
         "мрій на вебі. «Запам'ятай …» або фото розкладу з підписом «в нотатки» лягає на "
         "сторінку «Нотатки», одну довідку на вебі, яку я сам веду і переписую. Питай — "
         f"відповім з того, що знаю. Щоранку о "
-        f"{when} надсилаю дайджест: сьогодні, завтра і що лишилось на тиждень; нагадую, "
+        f"{when} надсилаю дайджест: сьогодні, завтра і що лишилось на тиждень{light}; нагадую, "
         f"коли попросиш. Про задачу «без дати» "
         f"сам нагадаю наступного дня о {nudge}, одну на день, з кнопками «Зроблено» і "
         f"«Завтра»; під разовим нагадуванням є «Нагадати завтра». Коли хтось додає подію в "
@@ -446,17 +452,21 @@ def build_bot(
         sent = await update.message.reply_text(_clip(outcome.reply))
         db.set_tg_message_id(outcome.bot_message_id, sent.message_id)
 
-    def digest(now: datetime) -> str | None:
-        """The digest, the same for every member; None when there is nothing to say."""
+    async def digest(now: datetime) -> str | None:
+        """The digest, the same for every member, with the outage schedule on top when a
+        queue is set; None when there is nothing to say."""
         agenda = build_agenda(db.planned_events(), now)
         buckets = bucket_todos(db.open_todos(), now)
         text = digest_text(agenda, buckets, family, now)
+        if settings.outage_group:
+            data = await outages.fetch(settings.outage_region)
+            text = outages.with_outages(text, data, settings.outage_group, now.date(), settings.tz)
         return _clip(text) if text else None
 
     async def send_digest(context: ContextTypes.DEFAULT_TYPE) -> None:
         """The morning job: each member's digest with «Відкрити» under it; silence when there
         is nothing to say."""
-        text = digest(datetime.now(settings.tz))
+        text = await digest(datetime.now(settings.tz))
         if text is None:
             log.info("digest: nothing to say today")
             return
@@ -524,7 +534,7 @@ def build_bot(
         person = member_of(update)
         assert update.message and person
         keyboard = open_keyboard(login_link(settings, person))
-        text = digest(datetime.now(settings.tz))
+        text = await digest(datetime.now(settings.tz))
         if text is None:
             await update.message.reply_text("Нічого не висить.", reply_markup=keyboard)
             return

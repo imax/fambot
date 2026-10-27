@@ -34,6 +34,8 @@ def _settings(**kw) -> Settings:
         llm_effort="medium",
         digest_time=time(8, 30),
         nudge_time=time(10, 0),
+        outage_group=None,
+        outage_region="kyiv-region",
         port=8080,
         tz=KYIV,
     )

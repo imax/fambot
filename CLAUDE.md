@@ -64,6 +64,9 @@ family_ea/
   files.py      FileStore (bytes under FILES_DIR by SHA-256, `ab/ab12….jpg`, never rewritten),
                 files_for() (the files under each item, from source_message_id and the
                 `applied` log), files_of_kind() (the photos the notes page was written from)
+  outages.py    the DTEK outage schedule of one queue (`OUTAGE_GROUP`) from the
+                outage-data-ua mirror on GitHub (DTEK's own site blocks bots), as the
+                digest's top block
   transcribe.py OpenAI gpt-4o-transcribe via httpx (Telegram voice: ogg; the web: webm or
                 mp4, whatever the browser recorded)
   ical.py       an event (timed or all-day) or a dated todo (all-day) -> .ics bytes
@@ -243,7 +246,10 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   tomorrow's events, todos due today and overdue, then «Цього тижня»: the week's events
   after tomorrow, its todos with a day still to come and the ones planned for it without
   a day (leftovers noted); the same text for everyone,
-  never the undated ones (they are on the web), no LLM call, and is silent when empty;
+  never the undated ones (they are on the web), no LLM call, and is silent when empty.
+  On top of it, the DTEK outage block for `OUTAGE_GROUP` (today, and tomorrow once
+  published; 2026-10-27): the one network call in a push, a failed fetch drops the
+  block and never the digest, and a morning whose only news is an outage still gets one;
   `/today` is the same digest now. A reminder is text the LLM wrote at request time,
   sent by a per-minute job when `at` comes, to the one member it is for or to everyone.
   A repeating one (`reminders.repeat`, `daily` or `weekly`, 2026-09-17, after «нагадування
@@ -304,7 +310,8 @@ tests/          deterministic; the LLM is faked, nothing hits the network
 - **Always `fly deploy --ha=false`.** Two machines would mean two pollers on one bot token
   and two SQLite files.
 - Secrets on Fly: `ADMIN_USER_ID`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-  `TELEGRAM_BOT_TOKEN`, `WEB_SECRET`, `WEB_URL`. The rest is in `fly.toml`.
+  `OUTAGE_GROUP` (the family's DTEK queue: a secret only because it says roughly where
+  they live), `TELEGRAM_BOT_TOKEN`, `WEB_SECRET`, `WEB_URL`. The rest is in `fly.toml`.
 - A deploy ships code only. Tables are created at start (`CREATE TABLE IF NOT EXISTS`);
   anything else goes into `Database._migrate()`, idempotent steps that run at every start
   (the one there copies `commitments` into `todos`, 2026-09-12; the `memories` → `journal`
