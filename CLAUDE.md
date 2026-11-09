@@ -65,7 +65,8 @@ family_ea/
   files.py      FileStore (bytes under FILES_DIR by SHA-256, `ab/ab12….jpg`, never rewritten),
                 files_for() (the files under each item, from source_message_id and the
                 `applied` log), files_of_kind() (the photos the notes page was written from)
-  outages.py    the DTEK outage schedule of one queue (`OUTAGE_GROUP`) from the
+  outages.py    the DTEK outage schedule of each address in `OUTAGE_GROUP` («3.2», or
+                «Дім=kyiv-region/3.2, Квартира=kyiv/12.1»: label, region file, group) from the
                 outage-data-ua mirror on GitHub (DTEK's own site blocks bots), as the
                 digest's top block
   transcribe.py OpenAI gpt-4o-transcribe via httpx (Telegram voice: ogg; the web: webm or
@@ -248,7 +249,7 @@ tests/          deterministic; the LLM is faked, nothing hits the network
   after tomorrow, its todos with a day still to come and the ones planned for it without
   a day (leftovers noted); the same text for everyone,
   never the undated ones (they are on the web), no LLM call, and is silent when empty.
-  On top of it, the DTEK outage block for `OUTAGE_GROUP` (today, and tomorrow once
+  On top of it, a DTEK outage block per address in `OUTAGE_GROUP` (today, and tomorrow once
   published; 2026-10-27): the one network call in a push, a failed fetch drops the
   block and never the digest, and a morning whose only news is an outage still gets one;
   `/today` is the same digest now. A reminder is text the LLM wrote at request time,
@@ -314,8 +315,9 @@ tests/          deterministic; the LLM is faked, nothing hits the network
 - **Always `fly deploy --ha=false`.** Two machines would mean two pollers on one bot token
   and two SQLite files.
 - Secrets on Fly: `ADMIN_USER_ID`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-  `OUTAGE_GROUP` (the family's DTEK queue: a secret only because it says roughly where
-  they live), `TELEGRAM_BOT_TOKEN`, `WEB_SECRET`, `WEB_URL`. The rest is in `fly.toml`.
+  `OUTAGE_GROUP` (the family's DTEK queues: a secret only because it says roughly where
+  they live; a Kyiv city address has no queue a person sees, its `GPV…` group comes from
+  the `getHomeNum` lookup behind dtek-kem.com.ua/ua/shutdowns, `sub_type_reason`), `TELEGRAM_BOT_TOKEN`, `WEB_SECRET`, `WEB_URL`. The rest is in `fly.toml`.
 - A deploy ships code only. Tables are created at start (`CREATE TABLE IF NOT EXISTS`);
   anything else goes into `Database._migrate()`, idempotent steps that run at every start
   (the one there copies `commitments` into `todos`, 2026-09-12; the `memories` → `journal`

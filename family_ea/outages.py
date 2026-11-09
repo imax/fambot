@@ -1,4 +1,5 @@
-"""The DTEK power outage schedule for one queue («Черга 3.2»), for the morning digest.
+"""The DTEK power outage schedule for one or more queues («Черга 3.2»), for the morning
+digest: one per address the family cares about, each in its region.
 
 DTEK's own pages (dtek-krem.com.ua and the like) sit behind bot protection, so the data
 comes from github.com/Baskerville42/outage-data-ua, which scrapes them every few minutes and
@@ -9,6 +10,7 @@ Kyiv midnight to `{"GPV3.2": {"1": "yes", ..., "24": "no"}}`, hour "1" being 00:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -17,6 +19,29 @@ import httpx
 log = logging.getLogger(__name__)
 
 SOURCE = "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data/{region}.json"
+
+
+@dataclass(frozen=True)
+class Source:
+    """One address: its region file and its queue, and a label when there is more than one."""
+
+    region: str  # 'kyiv-region' (dtek-krem), 'kyiv' (dtek-kem), ...
+    group: str  # '3.2'
+    label: str = ""  # 'Дім'
+
+
+def parse_sources(raw: str | None, default_region: str) -> tuple[Source, ...]:
+    """`OUTAGE_GROUP`: «3.2», or a comma-separated list of «Дім=kyiv-region/3.2»; the label
+    and the region are optional, the region defaults to `OUTAGE_REGION`."""
+    sources = []
+    for entry in (raw or "").split(","):
+        label, _, rest = entry.rpartition("=")
+        region, _, group = rest.strip().rpartition("/")
+        if not group.strip():
+            continue
+        sources.append(Source(region.strip() or default_region, group.strip(), label.strip()))
+    return tuple(sources)
+
 
 # Each hour as two halves, (first, second): "off", "maybe" or None (light is on).
 HALVES: dict[str, tuple[str | None, str | None]] = {
@@ -89,33 +114,45 @@ def day_line(hours: dict[str, str]) -> str:
     return ", ".join(parts)
 
 
-def outage_lines(data: dict | None, group: str, today: date, tz: ZoneInfo) -> list[str]:
-    """The digest block: today's line, and tomorrow's once DTEK has published it. Empty
+def outage_lines(data: dict | None, source: Source, today: date, tz: ZoneInfo) -> list[str]:
+    """One address's block: today's line, and tomorrow's once DTEK has published it. Empty
     when there is no schedule for today: nothing is better than yesterday's."""
     if data is None:
         return []
-    hours = day_hours(data, group, today, tz)
+    hours = day_hours(data, source.group, today, tz)
     if hours is None:
         return []
-    lines = [f"Світло, черга {group}:", f"- сьогодні {day_line(hours)}"]
-    tomorrow = day_hours(data, group, today + timedelta(days=1), tz)
+    where = f"{source.label}, " if source.label else ""
+    lines = [f"Світло, {where}черга {source.group}:", f"- сьогодні {day_line(hours)}"]
+    tomorrow = day_hours(data, source.group, today + timedelta(days=1), tz)
     if tomorrow is not None:
         lines.append(f"- завтра {day_line(tomorrow)}")
     return lines
 
 
-def has_outages(data: dict | None, group: str, today: date, tz: ZoneInfo) -> bool:
+def has_outages(data: dict | None, source: Source, today: date, tz: ZoneInfo) -> bool:
     """Whether today holds anything but light: enough to send the digest on its own."""
-    hours = day_hours(data, group, today, tz) if data else None
+    hours = day_hours(data, source.group, today, tz) if data else None
     return bool(hours and spans(hours))
 
 
 def with_outages(
-    digest: str | None, data: dict | None, group: str, today: date, tz: ZoneInfo
+    digest: str | None, found: list[tuple[Source, dict | None]], today: date, tz: ZoneInfo
 ) -> str | None:
-    """The digest with the outage block on top. A morning with nothing else to say still
-    gets one when the light goes off today; a quiet one stays silent."""
-    lines = outage_lines(data, group, today, tz)
-    if not lines or (digest is None and not has_outages(data, group, today, tz)):
+    """The digest with the outage blocks on top, one per address. A morning with nothing
+    else to say still gets one when the light goes off today somewhere; a quiet one stays
+    silent."""
+    lines = [line for source, data in found for line in outage_lines(data, source, today, tz)]
+    if not lines:
         return digest
+    if digest is None and not any(has_outages(d, s, today, tz) for s, d in found):
+        return None
     return "\n".join([*lines, digest] if digest else lines)
+
+
+async def fetch_all(
+    sources: tuple[Source, ...], transport: httpx.AsyncBaseTransport | None = None
+) -> list[tuple[Source, dict | None]]:
+    """Each source with its region's schedule, every region fetched once."""
+    regions = {r: await fetch(r, transport) for r in dict.fromkeys(s.region for s in sources)}
+    return [(s, regions[s.region]) for s in sources]

@@ -83,11 +83,8 @@ def help_text(settings: Settings) -> str:
     when = settings.digest_time.strftime("%H:%M")
     nudge = settings.nudge_time.strftime("%H:%M")
     commands = "\n".join(f"/{c.command} — {c.description}" for c in COMMANDS)
-    light = (
-        f", а згори графік відключень світла ДТЕК (черга {settings.outage_group})"
-        if settings.outage_group
-        else ""
-    )
+    groups = ", ".join(s.group for s in settings.outages)
+    light = f", а згори графік відключень світла ДТЕК (черга {groups})" if groups else ""
     return (
         "Пиши або наговорюй: що треба зробити, що коли буде, де що лежить. "
         "Фото теж: підпиши, що з ним зробити («це лежить у сейфі», «зроби з цього задачу»), "
@@ -453,14 +450,14 @@ def build_bot(
         db.set_tg_message_id(outcome.bot_message_id, sent.message_id)
 
     async def digest(now: datetime) -> str | None:
-        """The digest, the same for every member, with the outage schedule on top when a
-        queue is set; None when there is nothing to say."""
+        """The digest, the same for every member, with the outage schedules on top when
+        queues are set; None when there is nothing to say."""
         agenda = build_agenda(db.planned_events(), now)
         buckets = bucket_todos(db.open_todos(), now)
         text = digest_text(agenda, buckets, family, now)
-        if settings.outage_group:
-            data = await outages.fetch(settings.outage_region)
-            text = outages.with_outages(text, data, settings.outage_group, now.date(), settings.tz)
+        if settings.outages:
+            found = await outages.fetch_all(settings.outages)
+            text = outages.with_outages(text, found, now.date(), settings.tz)
         return _clip(text) if text else None
 
     async def send_digest(context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
+from .outages import Source, parse_sources
+
 load_dotenv()
 
 
@@ -27,8 +29,7 @@ class Settings:
     llm_effort: str
     digest_time: time  # local time of the morning push, in `tz`
     nudge_time: time  # local time of the nudge about a loose end (bot.deliver_due_nudges)
-    outage_group: str | None  # DTEK queue for the digest, '3.2'; None: no outage block
-    outage_region: str  # outage-data-ua region file: 'kyiv-region' (dtek-krem), 'kyiv', ...
+    outages: tuple[Source, ...]  # DTEK queues for the digest (OUTAGE_GROUP); () for none
     port: int
     tz: ZoneInfo
 
@@ -78,8 +79,7 @@ def load_settings() -> Settings:
         llm_effort=_env("LLM_EFFORT", "medium") or "",
         digest_time=_env_time("DIGEST_TIME", "08:30"),
         nudge_time=_env_time("NUDGE_TIME", "10:00"),
-        outage_group=_env("OUTAGE_GROUP"),
-        outage_region=_env("OUTAGE_REGION", "kyiv-region") or "",
+        outages=parse_sources(_env("OUTAGE_GROUP"), _env("OUTAGE_REGION", "kyiv-region") or ""),
         port=int(_env("PORT", "8080") or 8080),
         tz=ZoneInfo(_env("TZ", "Europe/Kyiv") or "Europe/Kyiv"),
     )
